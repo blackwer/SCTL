@@ -798,6 +798,15 @@ namespace sctl { // Generic
     for (Integer i = 0; i < VData::Size; i++) expx_.x[i] = exp(x_.x[i]);
     return expx_.v;
   }
+  template <class VData> VData erfc_intrin(const VData& x) {
+    union U {
+      VData v;
+      typename VData::ScalarType x[VData::Size];
+    };
+    U erfcx_, x_ = {x};
+    for (Integer i = 0; i < VData::Size; i++) erfcx_.x[i] = erfc(x_.x[i]);
+    return erfcx_.v;
+  }
   template <class VData> inline VData log_intrin(const VData& x) {
     union U {
       VData v;
@@ -1523,6 +1532,9 @@ namespace sctl { // SSE
 
   template <> inline VecData<float ,4> exp_intrin<VecData<float ,4>>(const VecData<float ,4>& x) { return _mm_exp_ps(x.v); }
   template <> inline VecData<double,2> exp_intrin<VecData<double,2>>(const VecData<double,2>& x) { return _mm_exp_pd(x.v); }
+
+  template <> inline VecData<float ,4> erfc_intrin<VecData<float ,4>>(const VecData<float ,4>& x) { return _mm_erfc_ps(x.v); }
+  template <> inline VecData<double,2> erfc_intrin<VecData<double,2>>(const VecData<double,2>& x) { return _mm_erfc_pd(x.v); }
   #else
   template <> inline void sincos_intrin<VecData<float ,4>>(VecData<float ,4>& sinx, VecData<float ,4>& cosx, const VecData<float ,4>& x) {
     approx_sincos_intrin<(Integer)(TypeTraits<float>::SigBits/3.2)>(sinx, cosx, x); // TODO: determine constants more precisely
@@ -2247,6 +2259,9 @@ namespace sctl { // AVX
 
   template <> inline VecData<float ,8> exp_intrin<VecData<float ,8>>(const VecData<float ,8>& x) { return _mm256_exp_ps(x.v); }
   template <> inline VecData<double,4> exp_intrin<VecData<double,4>>(const VecData<double,4>& x) { return _mm256_exp_pd(x.v); }
+
+  template <> inline VecData<float ,8> erfc_intrin<VecData<float ,8>>(const VecData<float ,8>& x) { return _mm256_erfc_ps(x.v); }
+  template <> inline VecData<double,4> erfc_intrin<VecData<double,4>>(const VecData<double,4>& x) { return _mm256_erfc_pd(x.v); }
   #else
   template <> inline void sincos_intrin<VecData<float ,8>>(VecData<float ,8>& sinx, VecData<float ,8>& cosx, const VecData<float ,8>& x) {
     approx_sincos_intrin<(Integer)(TypeTraits<float>::SigBits/3.2)>(sinx, cosx, x); // TODO: determine constants more precisely
@@ -3072,6 +3087,9 @@ namespace sctl { // AVX512
 
   template <> inline VecData<float,16> exp_intrin<VecData<float,16>>(const VecData<float,16>& x) { return _mm512_exp_ps(x.v); }
   template <> inline VecData<double,8> exp_intrin<VecData<double,8>>(const VecData<double,8>& x) { return _mm512_exp_pd(x.v); }
+
+  template <> inline VecData<float,16> erfc_intrin<VecData<float,16>>(const VecData<float,16>& x) { return _mm512_erfc_ps(x.v); }
+  template <> inline VecData<double,8> erfc_intrin<VecData<double,8>>(const VecData<double,8>& x) { return _mm512_erfc_pd(x.v); }
   #else
   template <> inline void sincos_intrin<VecData<float,16>>(VecData<float,16>& sinx, VecData<float,16>& cosx, const VecData<float,16>& x) {
     approx_sincos_intrin<(Integer)(TypeTraits<float>::SigBits/3.2)>(sinx, cosx, x); // TODO: determine constants more precisely
