@@ -383,6 +383,9 @@ namespace sctl {
   template <class ValueType, Integer N> inline Vec<ValueType,N> exp(const Vec<ValueType,N>& x);
   template <Integer digits, class ValueType, Integer N> inline Vec<ValueType,N> approx_exp(const Vec<ValueType,N>& x);
 
+  template <class ValueType, Integer N> inline Vec<ValueType,N> erfc(const Vec<ValueType,N>& x);
+  template <Integer digits, class ValueType, Integer N> inline Vec<ValueType,N> approx_erfc(const Vec<ValueType,N>& x);
+
   template <class ValueType, Integer N> inline Vec<ValueType,N> log(const Vec<ValueType,N>& x);
 
 
