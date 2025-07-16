@@ -387,7 +387,9 @@ namespace sctl {
     if (digits == -1 || ORDER > 13) return exp(x);
     else return approx_exp_intrin<ORDER>(x.get());
   }
-
+  template <class ValueType, Integer N> inline Vec<ValueType,N> erfc(const Vec<ValueType,N>& x) {
+    return erfc_intrin(x.get());
+  }
   template <class ValueType, Integer N> inline Vec<ValueType,N> log(const Vec<ValueType,N>& x) {
     return log_intrin(x.get());
   }
