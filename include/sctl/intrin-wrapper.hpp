@@ -741,6 +741,15 @@ namespace sctl { // Generic
     VData x32(mul_intrin<VData>(x16, x16));
     return fma_intrin(x32, set1_intrin<VData>(c32), fma_intrin( x16, fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c31), set1_intrin<VData>(c30)), fma_intrin(x1, set1_intrin<VData>(c29), set1_intrin<VData>(c28))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c27), set1_intrin<VData>(c26)), fma_intrin(x1, set1_intrin<VData>(c25), set1_intrin<VData>(c24)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c23), set1_intrin<VData>(c22)), fma_intrin(x1, set1_intrin<VData>(c21), set1_intrin<VData>(c20))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c19), set1_intrin<VData>(c18)), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16))))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0)))))));
   }
+  template <class VData, class CType, size_t... I>
+  VData EvalPolynomial(const VData &x1, const std::array<CType, sizeof...(I)> &arr, std::index_sequence<I...>) {
+    return EvalPolynomial(x1, arr[I]...);
+  }
+
+  template <class VData, class CType, size_t N>
+  VData EvalPolynomial(const VData &x1, const std::array<CType, N> &arr) {
+    return EvalPolynomial<VData, CType>(x1, arr, std::make_index_sequence<N>{});
+  }
 
   template <Integer ORDER, class VData> inline void approx_sincos_intrin(VData& sinx, VData& cosx, const VData& x) {
     // ORDER    ERROR
