@@ -3,6 +3,7 @@
 
 #include <stdint.h>             // for int8_t, int16_t, int32_t, int64_t
 #include <bitset>               // for popcnt
+#include <array>
 
 #include "sctl/common.hpp"      // for Integer, sctl, SCTL_ALIGN_B...
 #include "sctl/math_utils.hpp"  // for const_pi, QuadReal, cos, exp, sin, sqrt
@@ -483,6 +484,16 @@ namespace sctl { // Generic
     for (Integer i = 0; i < VData::Size; i++) cnt += (v_.q[i]!=0);
 
     return cnt;
+  }
+
+  template <class VData> inline bool mask_any(const Mask<VData>& v) {
+    union {
+        Mask<VData> m;
+        typename IntegerType<sizeof(typename VData::ScalarType)>::value q[VData::Size];
+    } v_ = {v};
+
+    for (Integer i = 0; i < VData::Size; i++) if (v_.q[i]) return true;
+    return false;
   }
 
   /////////////////////////////////////////////////////////////////////////////
@@ -3028,6 +3039,8 @@ namespace sctl { // AVX512
   // Bitwise operators
   template <> inline unsigned mask_popcnt_intrin<VecData<float, 16>>(const Mask<VecData<float, 16>>& v) { return std::bitset<16>(v.v).count(); }
   template <> inline unsigned mask_popcnt_intrin<VecData<double, 8>>(const Mask<VecData<double, 8>>& v) { return std::bitset<8>(v.v).count(); }
+  template <> inline bool mask_any<VecData<float, 16>>(const Mask<VecData<float, 16>>& v) { return v.v; }
+  template <> inline bool mask_any<VecData<double, 8>>(const Mask<VecData<double, 8>>& v) { return v.v; }
 
 #if defined(__AVX512BW__)
   template <> inline Mask<VecData<int8_t ,64>> operator~<VecData<int8_t ,64>>(const Mask<VecData<int8_t ,64>>& vec) { return Mask<VecData<int8_t ,64>>(_knot_mask64(vec.v)); }
