@@ -496,6 +496,46 @@ namespace sctl { // Generic
     return false;
   }
 
+  template <class VData> inline void mask_compress_store(const Mask<VData>& mask, const VData& v, typename VData::ScalarType* ptr) {
+    union {
+        Mask<VData> m;
+        typename IntegerType<sizeof(typename VData::ScalarType)>::value q[VData::Size];
+    } mask_ = {mask};
+
+    union {
+        VData vec;
+        typename VData::ScalarType s[VData::Size];
+    } v_ = {v};
+
+    int idx = 0;
+    for (Integer i = 0; i < VData::Size; i++) {
+        if (mask_.q[i]) {
+            ptr[idx++] = v_.s[i];
+        }
+    }
+  }
+
+  template <class VData> inline VData mask_expand_load(const Mask<VData>& mask, const VData& zero, const typename VData::ScalarType* ptr) {
+    union {
+        Mask<VData> m;
+        typename IntegerType<sizeof(typename VData::ScalarType)>::value q[VData::Size];
+    } mask_ = {mask};
+
+    union {
+        VData vec;
+        typename VData::ScalarType s[VData::Size];
+    } z_ = {zero};
+
+    int idx = 0;
+    for (Integer i = 0; i < VData::Size; i++) {
+        if (mask_.q[i]) {
+            z_.s[i] = ptr[idx++];
+        }
+    }
+    return z_.vec;
+  }
+
+
   /////////////////////////////////////////////////////////////////////////////
   /////////////////////////////////////////////////////////////////////////////
 
@@ -3037,10 +3077,23 @@ namespace sctl { // AVX512
 #endif
 
   // Bitwise operators
-  template <> inline unsigned mask_popcnt_intrin<VecData<float, 16>>(const Mask<VecData<float, 16>>& v) { return std::bitset<16>(v.v).count(); }
-  template <> inline unsigned mask_popcnt_intrin<VecData<double, 8>>(const Mask<VecData<double, 8>>& v) { return std::bitset<8>(v.v).count(); }
+  template <> inline unsigned mask_popcnt_intrin<VecData<float, 16>>(const Mask<VecData<float, 16>>& v) { return _mm_popcnt_u32(_cvtmask16_u32(v.v)); }
+  template <> inline unsigned mask_popcnt_intrin<VecData<double, 8>>(const Mask<VecData<double, 8>>& v) { return _mm_popcnt_u32(_cvtmask8_u32(v.v)); }
   template <> inline bool mask_any<VecData<float, 16>>(const Mask<VecData<float, 16>>& v) { return v.v; }
   template <> inline bool mask_any<VecData<double, 8>>(const Mask<VecData<double, 8>>& v) { return v.v; }
+  template <> inline void mask_compress_store<VecData<float, 16>>(const Mask<VecData<float, 16>>& mask, const VecData<float, 16>& v, float* ptr) { _mm512_mask_compressstoreu_ps(ptr, mask.v, v.v); }
+  template <> inline void mask_compress_store<VecData<double, 8>>(const Mask<VecData<double, 8>>& mask, const VecData<double, 8>& v, double* ptr) { _mm512_mask_compressstoreu_pd(ptr, mask.v, v.v); }
+  template <> inline VecData<float, 16> mask_expand_load<VecData<float, 16>>(const Mask<VecData<float, 16>> &mask, const VecData<float, 16> &zero, const float *ptr) {
+    VecData<float, 16> result;
+    result.v = _mm512_mask_expandloadu_ps(zero.v, mask.v, ptr);
+    return result;
+  }
+  template <> inline VecData<double, 8> mask_expand_load<VecData<double, 8>>(const Mask<VecData<double, 8>>& mask, const VecData<double, 8>& zero, const double* ptr) {
+    VecData<double, 8> result;
+    result.v = _mm512_mask_expandloadu_pd(zero.v, mask.v, ptr);
+    return result;
+  }
+
 
 #if defined(__AVX512BW__)
   template <> inline Mask<VecData<int8_t ,64>> operator~<VecData<int8_t ,64>>(const Mask<VecData<int8_t ,64>>& vec) { return Mask<VecData<int8_t ,64>>(_knot_mask64(vec.v)); }
