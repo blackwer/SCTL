@@ -111,6 +111,17 @@ template <Integer DIM> class Tree {
     template <class ValueType> void AddData(const std::string& name, const Vector<ValueType>& data, const Vector<Long>& cnt);
 
     /**
+     * Add unitialized named data to the tree nodes.
+     *
+     * @param[in] name Name for the data.
+     * @param[in] Dim Total size of the local data to initialize
+     * @param[in] cnt Vector of length equal to number of tree nodes, giving the number of data elements per node.
+     *
+     * @note This is a collective operation and must be called from all processes in the communicator.
+     */
+    template <class ValueType> void AddData(const std::string& name, Long Dim, const Vector<Long>& cnt);
+
+    /**
      * Get node data.
      *
      * @param[out] data Vector containing the contiguous data of all nodes. The vector does not own the memory, and
@@ -244,6 +255,17 @@ template <class Real, Integer DIM, class BaseTree = Tree<DIM>> class PtTree : pu
      * @note This is a collective operation and must be called from all processes in the communicator.
      */
     void AddParticleData(const std::string& data_name, const std::string& particle_name, const Vector<Real>& data);
+
+    /**
+     * Add uninitialized particle data to the point tree.
+     *
+     * @param data_name Name of the data.
+     * @param particle_name Name of the particle group.
+     * @param dof number of elements per point
+     *
+     * @note This is a collective operation and must be called from all processes in the communicator.
+     */
+    void AddParticleData(const std::string& data_name, const std::string& particle_name, Long dof);
 
     /**
      * Get particle data from the point tree. The data scattered back to

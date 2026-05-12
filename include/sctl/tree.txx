@@ -534,6 +534,24 @@ namespace sctl {
     node_cnt [name] = cnt;
   }
 
+  template <Integer DIM> template <class ValueType> void Tree<DIM>::AddData(const std::string &name, Long Dim, const Vector<Long> &cnt) {
+    Long dof;
+    { // Validate dof globally
+      StaticArray<Long, 2> Nl, Ng;
+      Nl[0] = Dim;
+      Nl[1] = omp_par::reduce(cnt.begin(), cnt.Dim());
+      comm.Allreduce((ConstIterator<Long>)Nl, (Iterator<Long>)Ng, 2, CommOp::SUM);
+      dof = Ng[0] / std::max<Long>(Ng[1],1);
+      SCTL_ASSERT(Nl[0] == Nl[1] * dof);
+      SCTL_ASSERT(Ng[0] == Ng[1] * dof);
+    }
+    if (dof) SCTL_ASSERT(cnt.Dim() == node_mid.Dim());
+
+    SCTL_ASSERT(node_data.find(name) == node_data.end());
+    node_data[name].ReInit(Dim * sizeof(ValueType));
+    node_cnt[name] = cnt;
+  }
+
   template <Integer DIM> template <class ValueType> void Tree<DIM>::GetData(Vector<ValueType>& data, Vector<Long>& cnt, const std::string& name) const {
     const auto data_ = node_data.find(name);
     const auto cnt_ = node_cnt.find(name);
@@ -992,6 +1010,34 @@ namespace sctl {
     { // Set data_[0]
       data_[0].ReInit(data.Dim()*sizeof(Real), (Iterator<char>)data.begin(), true);
       this->GetComm().ScatterForward(data_[0], scatter_idx[particle_name]);
+    }
+    if (data_name != particle_name) { // Set cnt_[0]
+      Vector<Real> pt_coord;
+      Vector<Long> pt_cnt;
+      this->GetData(pt_coord, pt_cnt, particle_name);
+      cnt_[0] = pt_cnt;
+
+      const auto& node_attr = this->GetNodeAttr();
+      SCTL_ASSERT(node_attr.Dim() == cnt_[0].Dim());
+      for (Long i = 0; i < node_attr.Dim(); i++) {
+        if (node_attr[i].Ghost) cnt_[0][i] = 0;
+        SCTL_ASSERT(node_attr[i].Leaf || !cnt_[0][i]);
+      }
+    }
+  }
+
+  template <class Real, Integer DIM, class BaseTree> void PtTree<Real,DIM,BaseTree>::AddParticleData(const std::string& data_name, const std::string& particle_name, Long dof) {
+    SCTL_ASSERT(scatter_idx.find(particle_name) != scatter_idx.end());
+    SCTL_ASSERT(data_pt_name.find(data_name) == data_pt_name.end());
+    data_pt_name[data_name] = particle_name;
+
+    Iterator<Vector<char>> data_;
+    Iterator<Vector<Long>> cnt_;
+    this->AddData(data_name, Vector<Real>(), Vector<Long>());
+    this->GetData_(data_,cnt_,data_name);
+    { // Set data_[0]: allocate the post-scatter size directly from the scatter index
+      const Long n_local = Nlocal.at(particle_name);
+      data_[0].ReInit(n_local * dof * sizeof(Real));
     }
     if (data_name != particle_name) { // Set cnt_[0]
       Vector<Real> pt_coord;
