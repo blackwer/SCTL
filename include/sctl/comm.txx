@@ -1836,7 +1836,7 @@ template <class Type, class Compare> void Comm::HyperQuickSort(const Vector<Type
   PartitionW<Type>(SortedElem);
 #else
   SortedElem = arr_;
-  std::sort(SortedElem.begin(), SortedElem.begin() + SortedElem.Dim(), comp);
+  omp_par::merge_sort(SortedElem.begin(), SortedElem.end(), comp);
 #endif
 }
 
