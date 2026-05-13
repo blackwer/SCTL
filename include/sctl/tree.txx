@@ -1772,7 +1772,7 @@ namespace sctl {
     this->AddData(data_name, Vector<Real>(), Vector<Long>());
     this->GetData_(data_,cnt_,data_name);
     { // Set data_[0]: allocate the post-scatter size directly from the scatter index
-      const Long n_local = Nlocal.at(particle_name);
+      const Long n_local = scatter_idx[particle_name].Dim();
       data_[0].ReInit(n_local * dof * sizeof(Real));
     }
     if (data_name != particle_name) { // Set cnt_[0]
