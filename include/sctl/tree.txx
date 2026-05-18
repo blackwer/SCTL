@@ -1848,6 +1848,11 @@ namespace sctl {
     data_pt_name.erase(data_name);
   }
 
+  template <class Real, Integer DIM, class BaseTree> const Vector<Long>& PtTree<Real,DIM,BaseTree>::GetScatterIdx(const std::string& pt_name) {
+    SCTL_ASSERT(scatter_idx.find(pt_name) != scatter_idx.end());
+    return scatter_idx[pt_name];
+  }
+
   template <class Real, Integer DIM, class BaseTree> void PtTree<Real,DIM,BaseTree>::WriteParticleVTK(std::string fname, std::string data_name, bool show_ghost) const {
     typedef typename VTUData::VTKReal VTKReal;
     const auto& node_mid = this->GetNodeMID();

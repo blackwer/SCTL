@@ -290,6 +290,14 @@ template <class Real, Integer DIM, class BaseTree = Tree<DIM>> class PtTree : pu
     void DeleteParticleData(const std::string& data_name);
 
     /**
+     * Get scattered particle indices
+     *
+     * @param pt_name Name of particle data to collect indices from
+     *
+     */
+    const Vector<Long>& GetScatterIdx(const std::string& pt_name);
+
+    /**
      * Write particle data to a VTK file.
      *
      * @param fname Filename for the VTK file.
