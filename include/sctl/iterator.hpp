@@ -1,7 +1,6 @@
 #ifndef _SCTL_ITERATOR_HPP_
 #define _SCTL_ITERATOR_HPP_
 
-#include <ostream>          // for ostream
 #include <iterator>         // for random_access_iterator_tag
 #include <ostream>          // for operator<<, basic_ostream
 
@@ -384,7 +383,9 @@ template <class ValueType> Iterator<ValueType> NullIterator();
  *
  * @tparam ValueType The type of elements pointed to by the iterator.
  * @param ptr The pointer to convert.
- * @param len The length of the array.
+ * @param len The number of `ValueType` elements in the array (not bytes).
+ * Used to bounds-check accesses through the returned iterator when
+ * `SCTL_MEMDEBUG` is defined; ignored in release builds.
  * @return An iterator pointing to the given pointer.
  */
 template <class ValueType> Iterator<ValueType> Ptr2Itr(void* ptr, Long len);
@@ -394,7 +395,9 @@ template <class ValueType> Iterator<ValueType> Ptr2Itr(void* ptr, Long len);
  *
  * @tparam ValueType The type of elements pointed to by the iterator.
  * @param ptr The const pointer to convert.
- * @param len The length of the array.
+ * @param len The number of `ValueType` elements in the array (not bytes).
+ * Used to bounds-check accesses through the returned iterator when
+ * `SCTL_MEMDEBUG` is defined; ignored in release builds.
  * @return A const iterator pointing to the given pointer.
  */
 template <class ValueType> ConstIterator<ValueType> Ptr2ConstItr(const void* ptr, Long len);

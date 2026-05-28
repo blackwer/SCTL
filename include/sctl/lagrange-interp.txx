@@ -7,6 +7,8 @@
 #include "sctl/lagrange-interp.hpp"  // for LagrangeInterp
 #include "sctl/iterator.txx"         // for NullIterator
 #include "sctl/matrix.hpp"           // for Matrix
+#include "sctl/scratch_pool.hpp"     // for ScratchBuf
+#include "sctl/scratch_pool.txx"     // for ScratchBuf
 #include "sctl/static-array.hpp"     // for StaticArray
 #include "sctl/vec.hpp"              // for Vec
 #include "sctl/vec.txx"              // for DefaultVecLen
@@ -46,8 +48,7 @@ namespace sctl {
     if (wts.Dim() != Nsrc*Ntrg) wts.ReInit(Nsrc*Ntrg);
     Matrix<Real> M(Nsrc, Ntrg, wts.begin(), false);
 
-    StaticArray<Real,200> w_buff;
-    Vector<Real> w(Nsrc, (Nsrc>=200?NullIterator<Real>():w_buff), (Nsrc>=200));
+    ScratchBuf<Real> w(Nsrc);
     const Real normal_factor = [src_nds]() { // normalize
       if (src_nds.Dim() < 2) return (Real)1;
       Real max_src = src_nds[0], min_src = src_nds[0];
@@ -113,9 +114,9 @@ namespace sctl {
   template <class Real> void LagrangeInterp<Real>::Derivative(Vector<Real>& df, const Vector<Real>& f, const Vector<Real>& nds) {
     Long N = nds.Dim();
     Long dof = f.Dim() / N;
-    SCTL_ASSERT(f.Dim() == N * dof);
-    if (df.Dim() != N * dof) df.ReInit(N * dof);
-    if (N*dof == 0) return;
+    SCTL_ASSERT(f.Dim() == dof * N);
+    if (df.Dim() != dof * N) df.ReInit(dof * N);
+    if (dof * N == 0) return;
 
     const Real normal_factor = [nds]() { // normalize
       if (!nds.Dim()) return (Real)1;

@@ -35,7 +35,7 @@ namespace sctl {
     for (Integer i = 0; i < DIM; i++) x[i] = mask & (UINT_T)floor((double)coord[i] * maxCoord);
   }
 
-  template <Integer DIM> int8_t Morton<DIM>::Depth() const {
+  template <Integer DIM> uint8_t Morton<DIM>::Depth() const {
     return depth;
   }
 
@@ -127,8 +127,8 @@ namespace sctl {
           m1.x[i] = (m0.x[i] - box_size) & mask0;
           m2.x[i] = (m0.x[i]           ) & mask0;
           m3.x[i] = (m0.x[i] + box_size) & mask0;
-          if (m0.x[i] < box_size) m1.depth = -1;
-          if (m0.x[i] + box_size >= maxCoord) m3.depth = -1;
+          if (m0.x[i] < box_size) m1.depth = Morton<DIM>::INVALID_DEPTH;
+          if (m0.x[i] + box_size >= maxCoord) m3.depth = Morton<DIM>::INVALID_DEPTH;
         }
         Nnbrs *= 3;
       }

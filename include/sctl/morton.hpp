@@ -17,6 +17,7 @@ template <class ValueType> class Vector;
 
 /**
  * Morton class template representing a Morton index in a space-filling curve.
+ * The domain is [0,1)^DIM, where DIM is the dimensionality of the Morton index.
  *
  * @tparam DIM Dimensionality of the Morton index. Defaults to 3.
  */
@@ -44,6 +45,13 @@ template <Integer DIM = 3> class Morton {
   static constexpr Integer MAX_DEPTH = SCTL_MAX_DEPTH;
 
   /**
+   * Sentinel `depth` value for "invalid" / "missing" nodes (see `NbrList`). Picked as
+   * `0xFF` (= `(uint8_t)-1`); legal depths are in `[0, MAX_DEPTH]` and `MAX_DEPTH < 64`,
+   * so this never collides with a real depth.
+   */
+  static constexpr uint8_t INVALID_DEPTH = 0xFF;
+
+  /**
    * Get the maximum depth of the Morton index.
    *
    * @return The maximum depth of the Morton index.
@@ -58,7 +66,7 @@ template <Integer DIM = 3> class Morton {
   /**
    * Constructor for Morton using coordinate iterators.
    *
-   * @param coord ConstIterator to the coordinates.
+   * @param coord ConstIterator to the coordinates in the domain [0,1)^DIM.
    * @param depth_ Depth of the Morton index. Defaults to maximum depth.
    */
   template <class T> explicit Morton(ConstIterator<T> coord, uint8_t depth_ = MAX_DEPTH);
@@ -68,7 +76,7 @@ template <Integer DIM = 3> class Morton {
    *
    * @return The depth of the Morton index.
    */
-  int8_t Depth() const;
+  uint8_t Depth() const;
 
   /**
    * Get the coordinates of the origin of a Morton box.
@@ -215,7 +223,7 @@ template <Integer DIM = 3> class Morton {
   /**
    * Depth of the Morton index.
    */
-  int8_t depth;
+  uint8_t depth;
 };
 
 }

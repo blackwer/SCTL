@@ -17,11 +17,6 @@
 #define SCTL_QUOTEME_1(x) #x
 //#define SCTL_INCLUDE(x) SCTL_QUOTEME(SCTL_NAMESPACE/x)
 
-// Profiling parameters
-#ifndef SCTL_PROFILE
-#define SCTL_PROFILE -1 // Granularity level
-#endif
-
 #if defined(__AVX512__) || defined(__AVX512F__)
   #define SCTL_ALIGN_BYTES 64
 #elif defined(__AVX__)
@@ -64,7 +59,8 @@ typedef int64_t Long;  // problem size
 #define SCTL_ASSERT(cond)                                                                                      \
   do {                                                                                                          \
     if (!(cond)) {                                                                                              \
-      fprintf(stderr, "\n%s:%d: %s: SCTL Assertion `%s' failed.\n", __FILE__, __LINE__, __PRETTY_FUNCTION__, #cond); \
+      std::cerr << '\n' << __FILE__ << ':' << __LINE__ << ": " << __PRETTY_FUNCTION__                          \
+                << ": SCTL Assertion `" << #cond << "' failed.\n";                                              \
       abort();                                                                                                  \
     }                                                                                                           \
   } while (0)

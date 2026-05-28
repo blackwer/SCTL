@@ -1,5 +1,5 @@
 CXX=g++ # requires g++-9 or newer / icpc (with gcc compatibility 9 or newer) / clang++ with llvm-10 or newer
-CXXFLAGS = -std=c++11 -fopenmp -Wall -Wfloat-conversion # need C++11 and OpenMP
+CXXFLAGS = -std=c++17 -fopenmp -Wall -Wfloat-conversion # need C++17 and OpenMP
 
 #Optional flags
 DEBUG ?= 0
@@ -15,6 +15,7 @@ ifeq "$(OS)" "Darwin"
 	CXXFLAGS += -g -rdynamic -Wl,-no_pie # for stack trace (on Mac)
 else
 	CXXFLAGS += -gdwarf-4 -g -rdynamic # for stack trace
+	CXXFLAGS += -ldl # dladdr() in stacktrace.h (libc on glibc >=2.34, libdl otherwise)
 endif
 
 CXXFLAGS += -DSCTL_GLOBAL_MEM_BUFF=0 # Global memory buffer size in MB
@@ -69,7 +70,9 @@ TARGET_BIN = \
        $(BINDIR)/test-sph-harm \
        $(BINDIR)/test-tensor \
        $(BINDIR)/test-vec \
-       $(BINDIR)/test-quad-elem
+       $(BINDIR)/test-quad-elem \
+       $(BINDIR)/test-scratch-pool \
+       $(BINDIR)/test-scratch-pool-perf
 
 .PHONY: all test clean
 
@@ -99,6 +102,7 @@ test: $(TARGET_BIN)
 	./$(BINDIR)/test-tensor
 	./$(BINDIR)/test-vec
 	./$(BINDIR)/test-quad-elem
+	./$(BINDIR)/test-scratch-pool
 
 clean:
 	$(RM) -r $(BINDIR)/* $(OBJDIR)/*

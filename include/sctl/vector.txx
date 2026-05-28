@@ -23,10 +23,11 @@
 
 namespace sctl {
 
-template <class ValueType> void Vector<ValueType>::Init(Long dim_, Iterator<ValueType> data_, bool own_data_) {
+template <class ValueType> void Vector<ValueType>::Init(Long dim_, Iterator<ValueType> data_, bool own_data_, bool disable_reinit) {
   dim = dim_;
   capacity = dim;
   own_data = own_data_;
+  disable_reinit_ = disable_reinit;
   if (own_data) {
     if (dim > 0) {
       data_ptr = aligned_new<ValueType>(capacity);
@@ -43,12 +44,20 @@ template <class ValueType> Vector<ValueType>::Vector() {
   Init(0);
 }
 
-template <class ValueType> Vector<ValueType>::Vector(Long dim_, Iterator<ValueType> data_, bool own_data_) {
-  Init(dim_, data_, own_data_);
+template <class ValueType> Vector<ValueType>::Vector(Long dim_, Iterator<ValueType> data_, bool own_data_, bool disable_reinit) {
+  Init(dim_, data_, own_data_, disable_reinit);
 }
 
 template <class ValueType> Vector<ValueType>::Vector(const Vector<ValueType>& V) {
   Init(V.Dim(), (Iterator<ValueType>)V.begin());
+}
+
+template <class ValueType> Vector<ValueType>::Vector(Vector<ValueType>&& V) noexcept {
+  SCTL_ASSERT_MSG(!V.disable_reinit_,
+    "Cannot move-construct from a fixed-size Vector; use it by reference, "
+    "or copy its elements into a fresh owning Vector.");
+  Init(0);
+  this->Swap(V);
 }
 
 template <class ValueType> Vector<ValueType>::Vector(const std::vector<ValueType>& V) {
@@ -71,6 +80,8 @@ template <class ValueType> Vector<ValueType>::~Vector() {
 }
 
 template <class ValueType> void Vector<ValueType>::Swap(Vector<ValueType>& v1) {
+  SCTL_ASSERT_MSG(!disable_reinit_ && !v1.disable_reinit_,
+    "Cannot Swap a fixed-size Vector (e.g. a non-owning view into ScratchBuf storage).");
   Long dim_ = dim;
   Long capacity_ = capacity;
   Iterator<ValueType> data_ptr_ = data_ptr;
@@ -87,19 +98,32 @@ template <class ValueType> void Vector<ValueType>::Swap(Vector<ValueType>& v1) {
   v1.own_data = own_data_;
 }
 
-template <class ValueType> void Vector<ValueType>::ReInit(Long dim_, Iterator<ValueType> data_, bool own_data_) {
+template <class ValueType> void Vector<ValueType>::ReInit(Long dim_, Iterator<ValueType> data_, bool own_data_, bool disable_reinit) {
+  SCTL_ASSERT_MSG(!disable_reinit_,
+    "Cannot ReInit a fixed-size Vector (e.g. a non-owning view into ScratchBuf storage).");
 #ifdef SCTL_MEMDEBUG
-  Vector<ValueType> tmp(dim_, data_, own_data_);
-  this->Swap(tmp);
+  // Always destroy-and-rebuild in debug mode for stricter checking.
+  if (own_data && data_ptr != NullIterator<ValueType>()) {
+    aligned_delete(data_ptr);
+  }
+  Init(dim_, data_, own_data_, disable_reinit);
 #else
   if (own_data_ && own_data && dim_ <= capacity) {
+    // Fast path: reuse existing owned buffer when sizes fit. Setting
+    // disable_reinit_ is just a field write; no need to drop to the slow path
+    // just to mark the Vector fixed.
     dim = dim_;
+    disable_reinit_ = disable_reinit;
     if (dim && (data_ptr != NullIterator<ValueType>()) && (data_ != NullIterator<ValueType>())) {
       memcopy(data_ptr, data_, dim);
     }
   } else {
-    Vector<ValueType> tmp(dim_, data_, own_data_);
-    this->Swap(tmp);
+    // Slow path: free old owned storage, then re-initialize. Avoids the
+    // tmp+Swap pattern because the new Swap rejects disable_reinit targets.
+    if (own_data && data_ptr != NullIterator<ValueType>()) {
+      aligned_delete(data_ptr);
+    }
+    Init(dim_, data_, own_data_, disable_reinit);
   }
 #endif
 }
@@ -163,9 +187,7 @@ template <class ValueType> template <class Type> void Vector<ValueType>::Read(co
   }
 }
 
-template <class ValueType> inline Long Vector<ValueType>::Dim() const { return dim; }
-
-//template <class ValueType> inline Long Vector<ValueType>::Capacity() const { return capacity; }
+template <class ValueType> inline Long Vector<ValueType>::Dim() const noexcept { return dim; }
 
 template <class ValueType> void Vector<ValueType>::SetZero() {
   if (dim > 0) memset<ValueType>(data_ptr, 0, dim);
@@ -221,6 +243,20 @@ template <class ValueType> Vector<ValueType>& Vector<ValueType>::operator=(const
 
 template <class ValueType> Vector<ValueType>& Vector<ValueType>::operator=(const Vector<ValueType>& V) {
   if (this != &V) {
+    if (dim != V.dim) ReInit(V.dim);
+    memcopy(data_ptr, V.data_ptr, dim);
+  }
+  return *this;
+}
+
+template <class ValueType> Vector<ValueType>& Vector<ValueType>::operator=(Vector<ValueType>&& V) noexcept {
+  if (this == &V) return *this;
+  if (own_data && V.own_data) {
+    // Both sides own their buffers — safe to swap; V's destructor will release
+    // our old buffer.
+    this->Swap(V);
+  } else {
+    // At least one side is a non-owning view. Falling back to copy semantics.
     if (dim != V.dim) ReInit(V.dim);
     memcopy(data_ptr, V.data_ptr, dim);
   }
