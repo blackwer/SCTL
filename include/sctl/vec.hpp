@@ -368,6 +368,9 @@ namespace sctl {
   template <class ValueType, Integer N> inline Vec<ValueType,N> max(const ValueType& lhs, const Vec<ValueType,N>& rhs);
   template <class ValueType, Integer N> inline Vec<ValueType,N> min(const ValueType& lhs, const Vec<ValueType,N>& rhs);
 
+  // Horizontal reduction: sum of all lanes.
+  template <class ValueType, Integer N> inline ValueType reduce_add(const Vec<ValueType,N>& a);
+
 
   // Special functions
   template <Integer digits, class ValueType, Integer N> inline Vec<ValueType,N> approx_rsqrt(const Vec<ValueType,N>& x);
