@@ -31,7 +31,7 @@ namespace sctl {
     #elif defined(__AVX__)
     static_assert(SCTL_ALIGN_BYTES >= 32, "Insufficient memory alignment for SIMD vector types");
     return 32/sizeof(ScalarType);
-    #elif defined(__SSE4_2__)
+    #elif defined(__SSE4_2__) || defined(__ARM_NEON)
     static_assert(SCTL_ALIGN_BYTES >= 16, "Insufficient memory alignment for SIMD vector types");
     return 16/sizeof(ScalarType);
     #else

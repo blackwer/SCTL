@@ -11,12 +11,10 @@
 
 #if defined(__ARM_NEON)
 #  include "sctl/sse2neon.h"
-#  define __SSE__ 1
-#  define __SSE2__ 1
-#  define __SSE3__ 1
-#  define __SSE4__ 1
-#  define __SSE4_1__ 1
-#  define __SSE4_2__ 1
+// No x86 feature macros are asserted here. They leak into every translation unit, and libraries
+// that read them as "this target is x86" -- ducc0 keys on __SSE2__ and __SSE3__, xsimd on
+// __SSE4_1__ and __SSE4_2__ -- then include the real x86 intrinsic headers, whose types collide
+// with sse2neon's. The SSE code below tests __ARM_NEON alongside the x86 macros instead.
 #  define _MM_SHUFFLE2(fp1, fp0) (((fp1) << 1) | (fp0))
 #elif defined(__MMX__) || defined(__SSE__) || defined(__SSE2__) || defined(__SSE4_2__) || defined(__AVX__) || defined(__AVX512F__)
 #  ifdef _MSC_VER
@@ -1046,7 +1044,7 @@ namespace sctl { // Generic
 }
 
 namespace sctl { // SSE
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__) || defined(__ARM_NEON)
   template <> struct alignas(sizeof(int8_t) * 16) VecData<int8_t,16> {
     using ScalarType = int8_t;
     static constexpr Integer Size = 16;
@@ -1098,7 +1096,7 @@ namespace sctl { // SSE
   // If SSE4.1 is supported then only bit 7 in each byte of s is checked,
   // otherwise all bits in s are used.
   static inline __m128i selectb (__m128i const & s, __m128i const & a, __m128i const & b) {
-    #if defined(__SSE4_1__)
+    #if defined(__SSE4_1__) || defined(__ARM_NEON)
     return _mm_blendv_epi8 (b, a, s);
     #else
     return _mm_or_si128(_mm_and_si128(s,a), _mm_andnot_si128(s,b));
@@ -1343,7 +1341,7 @@ namespace sctl { // SSE
     return _mm_mullo_epi16(a.v, b.v);
   }
   template <> inline VecData<int32_t,4> mul_intrin(const VecData<int32_t,4>& a, const VecData<int32_t,4>& b) {
-    #if defined(__SSE4_1__)
+    #if defined(__SSE4_1__) || defined(__ARM_NEON)
     return _mm_mullo_epi32(a.v, b.v);
     #else
     __m128i a13    = _mm_shuffle_epi32(a.v, 0xF5);        // (-,a3,-,a1)
@@ -1358,7 +1356,7 @@ namespace sctl { // SSE
   template <> inline VecData<int64_t,2> mul_intrin(const VecData<int64_t,2>& a, const VecData<int64_t,2>& b) {
     #if defined(__AVX512DQ__) && defined(__AVX512VL__)
     return _mm_mullo_epi64(a.v, b.v);
-    #elif defined(__SSE4_1__)
+    #elif defined(__SSE4_1__) || defined(__ARM_NEON)
     // Split into 32-bit multiplies
     __m128i bswap   = _mm_shuffle_epi32(b.v,0xB1);         // b0H,b0L,b1H,b1L (swap H<->L)
     __m128i prodlh  = _mm_mullo_epi32(a.v,bswap);          // a0Lb0H,a0Hb0L,a1Lb1H,a1Hb1L, 32 bit L*H products
