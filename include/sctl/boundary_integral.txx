@@ -2,8 +2,6 @@
 #define _SCTL_BOUNDARY_INTEGRAL_TXX_
 
 #include <algorithm>                   // for lower_bound, max, min, upper_b...
-#include <cstdio>                      // for printf (SCTL_BIO_VERBOSE diagnostic)
-#include <cstdlib>                     // for getenv, atoi
 #include <map>                         // for map
 #include <new>                         // for hardware_destructive_interference_size
 #include <set>                         // for set, __tree_const_iterator
@@ -34,7 +32,7 @@
 
 namespace sctl {
 
-  template <class VType> static void concat_vecs(Vector<VType>& v, const Vector<Vector<VType>>& vec_lst) {
+  template <class VType> void concat_vecs(Vector<VType>& v, const Vector<Vector<VType>>& vec_lst) {
     const Long N = vec_lst.Dim();
     Vector<Long> dsp(N+1); dsp[0] = 0;
     for (Long i = 0; i < N; i++) {
@@ -78,7 +76,7 @@ namespace sctl {
     bool have_trg_normal;
     { // Set have_trg_normal
       StaticArray<Long,1> Nloc{Xn_trg.Dim()}, Nglb{0};
-      comm.Allreduce<Long>(Nloc, Nglb, 1, CommOp::SUM);
+      comm.Allreduce(Nloc + 0, Nglb + 0, 1, CommOp::SUM);
       have_trg_normal = (Nglb[0] > 0);
       SCTL_ASSERT(!have_trg_normal || (Xn_trg.Dim() == Xtrg.Dim()));
     }
@@ -126,7 +124,7 @@ namespace sctl {
             X0_local[k] = std::min<Real>(X0_local[k], Xsrc[i*COORD_DIM+k]);
           }
         }
-        comm_.Allreduce<Real>(X0_local, BBX0, COORD_DIM, CommOp::MIN);
+        comm_.Allreduce(X0_local, BBX0, COORD_DIM, CommOp::MIN);
 
         Real BBlen, len_local = 0;
         for (Long i = 0; i < Ntrg; i++) {
@@ -139,7 +137,7 @@ namespace sctl {
             len_local = std::max<Real>(len_local, Xsrc[i*COORD_DIM+k]-BBX0[k]);
           }
         }
-        comm_.Allreduce<Real>(Ptr2ConstItr<Real>(&len_local,1), Ptr2Itr<Real>(&BBlen,1), 1, CommOp::MAX);
+        comm_.Allreduce(Ptr2ConstItr<Real>(&len_local,1), Ptr2Itr<Real>(&BBlen,1), 1, CommOp::MAX);
         BBlen_inv = (BBlen > 0 ? 1/BBlen : (Real)1);
       }
       { // Expand bounding-box so that no points are on the boundary
@@ -247,6 +245,7 @@ namespace sctl {
             dsp[t+1] = dsp[t] + cnt[t];
           }
           proc_srcidx_lst.ReInit(dsp[omp_p]);
+          // Indexed by thread id: slots no thread filled are empty, so they add nothing to dsp.
           #pragma omp parallel num_threads(omp_p)
           {
             const Integer tid = SCTL_GET_THREAD_NUM();
@@ -269,7 +268,7 @@ namespace sctl {
       for (Long i = 0; i < sbuff.Dim(); i++) sbuff[i] = src_nodes0[proc_srcidx_lst[i].second];
 
       Vector<Long> rcnt(np), rdsp(np); rdsp = 0;
-      comm_.Alltoall<Long>(scnt.begin(), 1, rcnt.begin(), 1);
+      comm_.Alltoall(scnt.begin(), 1, rcnt.begin(), 1);
       omp_par::scan(rcnt.begin(), rdsp.begin(), np);
 
       // Exchange data
@@ -417,6 +416,7 @@ namespace sctl {
           dsp[i+1] = dsp[i] + cnt[i];
         }
         near_lst.ReInit(dsp[omp_p]);
+        // Indexed by thread id: slots no thread filled are empty, so they add nothing to dsp.
         #pragma omp parallel num_threads(omp_p)
         {
           const Integer tid = SCTL_GET_THREAD_NUM();
@@ -1071,12 +1071,6 @@ namespace sctl {
         #endif
         const Long N_near = near_elem_dsp[Nelem-1] + near_elem_cnt[Nelem-1];
         const Long omp_chunk_size = std::max(N_near/SCTL_GET_MAX_THREADS()/32, (cache_line_size/(Long)sizeof(Real)+KDIM1_-1)/KDIM1_);
-        if (const char* v = std::getenv("SCTL_BIO_VERBOSE")) { // diagnostic: near-loop shape
-          if (std::atoi(v)) std::printf("[SetupNear] N_near=%ld chunk=%ld nchunk=%ld nthreads=%d Nelem=%ld\n",
-                                        (long)N_near, (long)omp_chunk_size,
-                                        (long)((N_near+omp_chunk_size-1)/omp_chunk_size),
-                                        (int)SCTL_GET_MAX_THREADS(), (long)Nelem);
-        }
         #pragma omp parallel for schedule(dynamic,omp_chunk_size)
         for (Long i = 0; i < N_near; i++) { // loop over all pairs of elements and their near targets
           const Long elem_idx = std::lower_bound(near_elem_dsp.begin(), near_elem_dsp.end(), i+1) - near_elem_dsp.begin() - 1;
@@ -1334,7 +1328,7 @@ namespace sctl {
       SCTL_ASSERT(src_dof * near_elem_cnt[elem_idx]*KDIM1_ == K_near_cnt[elem_idx]*KDIM0*KDIM1_);
       // target-major: K.F rather than F.K, and a target range is a contiguous row-block
       const Matrix<Real> K_near_(trg_dof, src_dof, K_near.begin() + K_near_dsp[elem_idx]*KDIM0*KDIM1_ + t0*KDIM1_*src_dof, false);
-      const Matrix<Real> F_(src_dof, 1, (Iterator<Real>)F.begin() + elem_nds_dsp[elem_idx]*KDIM0, false);
+      const Matrix<const Real> F_(src_dof, 1, F.begin() + elem_nds_dsp[elem_idx]*KDIM0, false);
       Matrix<Real> U_(trg_dof, 1, U_near.begin() + (near_elem_dsp[elem_idx]+t0)*KDIM1_, false);
       Matrix<Real>::GEMM(U_, K_near_, F_);
     }
