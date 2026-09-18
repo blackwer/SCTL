@@ -2,8 +2,6 @@
 #define _SCTL_INTRIN_WRAPPER_HPP_
 
 #include <stdint.h>             // for int8_t, int16_t, int32_t, int64_t
-#include <bitset>               // for popcnt
-#include <array>
 
 #include "sctl/common.hpp"      // for Integer, sctl, SCTL_ALIGN_B...
 #include "sctl/math_utils.hpp"  // for const_pi, QuadReal, cos, exp, sin, sqrt
@@ -496,19 +494,21 @@ namespace sctl { // Generic
     return Mask<VData>(v);
   }
 
-  template <class VData> inline unsigned mask_popcnt_intrin(const Mask<VData>& v) {
+  template <class VData> inline Integer mask_popcnt_intrin(const Mask<VData>& v) {
+    static_assert(sizeof(Mask<VData>) == sizeof(VData), "reads one lane per element; register masks need a specialization");
     union {
         Mask<VData> m;
         typename IntegerType<sizeof(typename VData::ScalarType)>::value q[VData::Size];
     } v_ = {v};
 
-    unsigned cnt = 0;
+    Integer cnt = 0;
     for (Integer i = 0; i < VData::Size; i++) cnt += (v_.q[i]!=0);
 
     return cnt;
   }
 
   template <class VData> inline bool mask_any(const Mask<VData>& v) {
+    static_assert(sizeof(Mask<VData>) == sizeof(VData), "reads one lane per element; register masks need a specialization");
     union {
         Mask<VData> m;
         typename IntegerType<sizeof(typename VData::ScalarType)>::value q[VData::Size];
@@ -519,6 +519,7 @@ namespace sctl { // Generic
   }
 
   template <class VData> inline void mask_compress_store(const Mask<VData>& mask, const VData& v, typename VData::ScalarType* ptr) {
+    static_assert(sizeof(Mask<VData>) == sizeof(VData), "reads one lane per element; register masks need a specialization");
     union {
         Mask<VData> m;
         typename IntegerType<sizeof(typename VData::ScalarType)>::value q[VData::Size];
@@ -529,7 +530,7 @@ namespace sctl { // Generic
         typename VData::ScalarType s[VData::Size];
     } v_ = {v};
 
-    int idx = 0;
+    Integer idx = 0;
     for (Integer i = 0; i < VData::Size; i++) {
         if (mask_.q[i]) {
             ptr[idx++] = v_.s[i];
@@ -537,7 +538,8 @@ namespace sctl { // Generic
     }
   }
 
-  template <class VData> inline Integer mask_compress_iota_store(const Mask<VData>& mask, Integer base, int32_t* ptr) {
+  template <class VData> inline Integer mask_compress_iota_store(const Mask<VData>& mask, int32_t base, int32_t* ptr) {
+    static_assert(sizeof(Mask<VData>) == sizeof(VData), "reads one lane per element; register masks need a specialization");
     union {
         Mask<VData> m;
         typename IntegerType<sizeof(typename VData::ScalarType)>::value q[VData::Size];
@@ -546,15 +548,15 @@ namespace sctl { // Generic
     Integer idx = 0;
     for (Integer i = 0; i < VData::Size; i++) {
         if (mask_.q[i]) {
-            ptr[idx++] = static_cast<int32_t>(base + i);
+            ptr[idx++] = base + (int32_t)i;
         }
     }
     return idx;
   }
 
-  template <class VData> inline Integer mask_compress_iota_store2(const Mask<VData>& mask_lo, const Mask<VData>& mask_hi, Integer base, int32_t* ptr) {
+  template <class VData> inline Integer mask_compress_iota_store2(const Mask<VData>& mask_lo, const Mask<VData>& mask_hi, int32_t base, int32_t* ptr) {
     const Integer c = mask_compress_iota_store(mask_lo, base, ptr);
-    return c + mask_compress_iota_store(mask_hi, base + VData::Size, ptr + c);
+    return c + mask_compress_iota_store(mask_hi, base + (int32_t)VData::Size, ptr + c);
   }
 
   template <class VData> inline typename VData::ScalarType reduce_add_intrin(const VData& a) {
@@ -568,6 +570,7 @@ namespace sctl { // Generic
   }
 
   template <class VData> inline VData mask_expand_load(const Mask<VData>& mask, const VData& zero, const typename VData::ScalarType* ptr) {
+    static_assert(sizeof(Mask<VData>) == sizeof(VData), "reads one lane per element; register masks need a specialization");
     union {
         Mask<VData> m;
         typename IntegerType<sizeof(typename VData::ScalarType)>::value q[VData::Size];
@@ -578,7 +581,7 @@ namespace sctl { // Generic
         typename VData::ScalarType s[VData::Size];
     } z_ = {zero};
 
-    int idx = 0;
+    Integer idx = 0;
     for (Integer i = 0; i < VData::Size; i++) {
         if (mask_.q[i]) {
             z_.s[i] = ptr[idx++];
@@ -752,107 +755,6 @@ namespace sctl { // Generic
     VData x8(mul_intrin<VData>(x4,x4));
     return fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0)))));
   }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin(x16, set1_intrin<VData>(c16), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin( x16, fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16)), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17, const CType &c18) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin(x16, fma_intrin(x2, set1_intrin<VData>(c18), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17, const CType &c18, const CType &c19, const CType &c20, const CType &c21) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin(x16, fma_intrin(x4, fma_intrin(x1, set1_intrin<VData>(c21), set1_intrin<VData>(c20)), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c19), set1_intrin<VData>(c18)), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16)))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17, const CType &c18, const CType &c19, const CType &c20, const CType &c21, const CType &c22) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin(x16, fma_intrin( x4, fma_intrin(x2, set1_intrin<VData>(c22), fma_intrin(x1, set1_intrin<VData>(c21), set1_intrin<VData>(c20))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c19), set1_intrin<VData>(c18)), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16)))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17, const CType &c18, const CType &c19, const CType &c20, const CType &c21, const CType &c22, const CType &c23) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin(x16, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c23), set1_intrin<VData>(c22)), fma_intrin(x1, set1_intrin<VData>(c21), set1_intrin<VData>(c20))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c19), set1_intrin<VData>(c18)), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16)))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17, const CType &c18, const CType &c19, const CType &c20, const CType &c21, const CType &c22, const CType &c23, const CType &c24)   {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin(x16, fma_intrin(x8, set1_intrin<VData>(c24), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c23), set1_intrin<VData>(c22)), fma_intrin(x1, set1_intrin<VData>(c21), set1_intrin<VData>(c20))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c19), set1_intrin<VData>(c18)), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16))))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17, const CType &c18, const CType &c19, const CType &c20, const CType &c21, const CType &c22, const CType &c23, const CType &c24, const CType &c25, const CType &c26, const CType &c27) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin(x16, fma_intrin(x8, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c27), set1_intrin<VData>(c26)), fma_intrin(x1, set1_intrin<VData>(c25), set1_intrin<VData>(c24))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c23), set1_intrin<VData>(c22)), fma_intrin(x1, set1_intrin<VData>(c21), set1_intrin<VData>(c20))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c19), set1_intrin<VData>(c18)), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16))))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17, const CType &c18, const CType &c19, const CType &c20, const CType &c21, const CType &c22, const CType &c23, const CType &c24, const CType &c25, const CType &c26, const CType &c27, const CType &c28) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin(x16, fma_intrin(x8, fma_intrin(x4, set1_intrin<VData>(c28), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c27), set1_intrin<VData>(c26)), fma_intrin(x1, set1_intrin<VData>(c25), set1_intrin<VData>(c24)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c23), set1_intrin<VData>(c22)), fma_intrin(x1, set1_intrin<VData>(c21), set1_intrin<VData>(c20))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c19), set1_intrin<VData>(c18)), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16))))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17, const CType &c18, const CType &c19, const CType &c20, const CType &c21, const CType &c22, const CType &c23, const CType &c24, const CType &c25, const CType &c26, const CType &c27, const CType &c28, const CType &c29) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin(x16, fma_intrin(x8, fma_intrin(x4, fma_intrin(x1, set1_intrin<VData>(c29), set1_intrin<VData>(c28)), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c27), set1_intrin<VData>(c26)), fma_intrin(x1, set1_intrin<VData>(c25), set1_intrin<VData>(c24)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c23), set1_intrin<VData>(c22)), fma_intrin(x1, set1_intrin<VData>(c21), set1_intrin<VData>(c20))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c19), set1_intrin<VData>(c18)), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16))))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17, const CType &c18, const CType &c19, const CType &c20, const CType &c21, const CType &c22, const CType &c23, const CType &c24, const CType &c25, const CType &c26, const CType &c27, const CType &c28, const CType &c29, const CType &c30) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin(x16, fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, set1_intrin<VData>(c30), fma_intrin(x1, set1_intrin<VData>(c29), set1_intrin<VData>(c28))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c27), set1_intrin<VData>(c26)), fma_intrin(x1, set1_intrin<VData>(c25), set1_intrin<VData>(c24)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c23), set1_intrin<VData>(c22)), fma_intrin(x1, set1_intrin<VData>(c21), set1_intrin<VData>(c20))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c19), set1_intrin<VData>(c18)), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16))))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17, const CType &c18, const CType &c19, const CType &c20, const CType &c21, const CType &c22, const CType &c23, const CType &c24, const CType &c25, const CType &c26, const CType &c27, const CType &c28, const CType &c29, const CType &c30, const CType &c31) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    return fma_intrin(x16, fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c31), set1_intrin<VData>(c30)), fma_intrin(x1, set1_intrin<VData>(c29), set1_intrin<VData>(c28))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c27), set1_intrin<VData>(c26)), fma_intrin(x1, set1_intrin<VData>(c25), set1_intrin<VData>(c24)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c23), set1_intrin<VData>(c22)), fma_intrin(x1, set1_intrin<VData>(c21), set1_intrin<VData>(c20))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c19), set1_intrin<VData>(c18)), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16))))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0))))));
-  }
-  template <class VData, class CType> VData EvalPolynomial(const VData &x1, const CType &c0, const CType &c1, const CType &c2, const CType &c3, const CType &c4, const CType &c5, const CType &c6, const CType &c7, const CType &c8, const CType &c9, const CType &c10, const CType &c11, const CType &c12, const CType &c13, const CType &c14, const CType &c15, const CType &c16, const CType &c17, const CType &c18, const CType &c19, const CType &c20, const CType &c21, const CType &c22, const CType &c23, const CType &c24, const CType &c25, const CType &c26, const CType &c27, const CType &c28, const CType &c29, const CType &c30, const CType &c31, const CType &c32) {
-    VData x2(mul_intrin<VData>(x1, x1));
-    VData x4(mul_intrin<VData>(x2, x2));
-    VData x8(mul_intrin<VData>(x4, x4));
-    VData x16(mul_intrin<VData>(x8, x8));
-    VData x32(mul_intrin<VData>(x16, x16));
-    return fma_intrin(x32, set1_intrin<VData>(c32), fma_intrin( x16, fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c31), set1_intrin<VData>(c30)), fma_intrin(x1, set1_intrin<VData>(c29), set1_intrin<VData>(c28))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c27), set1_intrin<VData>(c26)), fma_intrin(x1, set1_intrin<VData>(c25), set1_intrin<VData>(c24)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c23), set1_intrin<VData>(c22)), fma_intrin(x1, set1_intrin<VData>(c21), set1_intrin<VData>(c20))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c19), set1_intrin<VData>(c18)), fma_intrin(x1, set1_intrin<VData>(c17), set1_intrin<VData>(c16))))), fma_intrin(x8, fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c15), set1_intrin<VData>(c14)), fma_intrin(x1, set1_intrin<VData>(c13), set1_intrin<VData>(c12))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c11), set1_intrin<VData>(c10)), fma_intrin(x1, set1_intrin<VData>(c9), set1_intrin<VData>(c8)))), fma_intrin(x4, fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c7), set1_intrin<VData>(c6)), fma_intrin(x1, set1_intrin<VData>(c5), set1_intrin<VData>(c4))), fma_intrin(x2, fma_intrin(x1, set1_intrin<VData>(c3), set1_intrin<VData>(c2)), fma_intrin(x1, set1_intrin<VData>(c1), set1_intrin<VData>(c0)))))));
-  }
-  template <class VData, class CType, size_t... I>
-  VData EvalPolynomial(const VData &x1, const std::array<CType, sizeof...(I)> &arr, std::index_sequence<I...>) {
-    return EvalPolynomial(x1, arr[I]...);
-  }
-
-  template <class VData, class CType, size_t N>
-  VData EvalPolynomial(const VData &x1, const std::array<CType, N> &arr) {
-    return EvalPolynomial<VData, CType>(x1, arr, std::make_index_sequence<N>{});
-  }
 
   template <Integer ORDER, class VData> inline void approx_sincos_intrin(VData& sinx, VData& cosx, const VData& x) {
     // ORDER    ERROR
@@ -1001,15 +903,6 @@ namespace sctl { // Generic
     U expx_, x_ = {x};
     for (Integer i = 0; i < VData::Size; i++) expx_.x[i] = exp(x_.x[i]);
     return expx_.v;
-  }
-  template <class VData> VData erfc_intrin(const VData& x) {
-    union U {
-      VData v;
-      typename VData::ScalarType x[VData::Size];
-    };
-    U erfcx_, x_ = {x};
-    for (Integer i = 0; i < VData::Size; i++) erfcx_.x[i] = erfc(x_.x[i]);
-    return erfcx_.v;
   }
   template <class VData> inline VData log_intrin(const VData& x) {
     union U {
@@ -1809,9 +1702,6 @@ namespace sctl { // SSE
 
   template <> inline VecData<float ,4> exp_intrin<VecData<float ,4>>(const VecData<float ,4>& x) { return _mm_exp_ps(x.v); }
   template <> inline VecData<double,2> exp_intrin<VecData<double,2>>(const VecData<double,2>& x) { return _mm_exp_pd(x.v); }
-
-  template <> inline VecData<float ,4> erfc_intrin<VecData<float ,4>>(const VecData<float ,4>& x) { return _mm_erfc_ps(x.v); }
-  template <> inline VecData<double,2> erfc_intrin<VecData<double,2>>(const VecData<double,2>& x) { return _mm_erfc_pd(x.v); }
   #else
   template <> inline void sincos_intrin<VecData<float ,4>>(VecData<float ,4>& sinx, VecData<float ,4>& cosx, const VecData<float ,4>& x) {
     approx_sincos_intrin<(Integer)(TypeTraits<float>::SigBits/3.2)>(sinx, cosx, x); // TODO: determine constants more precisely
@@ -2641,9 +2531,6 @@ namespace sctl { // AVX
 
   template <> inline VecData<float ,8> exp_intrin<VecData<float ,8>>(const VecData<float ,8>& x) { return _mm256_exp_ps(x.v); }
   template <> inline VecData<double,4> exp_intrin<VecData<double,4>>(const VecData<double,4>& x) { return _mm256_exp_pd(x.v); }
-
-  template <> inline VecData<float ,8> erfc_intrin<VecData<float ,8>>(const VecData<float ,8>& x) { return _mm256_erfc_ps(x.v); }
-  template <> inline VecData<double,4> erfc_intrin<VecData<double,4>>(const VecData<double,4>& x) { return _mm256_erfc_pd(x.v); }
   #else
   template <> inline void sincos_intrin<VecData<float ,8>>(VecData<float ,8>& sinx, VecData<float ,8>& cosx, const VecData<float ,8>& x) {
     approx_sincos_intrin<(Integer)(TypeTraits<float>::SigBits/3.2)>(sinx, cosx, x); // TODO: determine constants more precisely
@@ -2709,9 +2596,9 @@ namespace sctl { // AVX
 
   // No AVX2 vcompress: left-pack the base+lane iota via a mask-indexed permute, then a
   // count-limited masked store so only the surviving lanes are written (no buffer overrun).
-  template <> inline Integer mask_compress_iota_store<VecData<float,8>>(const Mask<VecData<float,8>>& mask, Integer base, int32_t* ptr) {
+  template <> inline Integer mask_compress_iota_store<VecData<float,8>>(const Mask<VecData<float,8>>& mask, int32_t base, int32_t* ptr) {
     const unsigned m = (unsigned)_mm256_movemask_ps(mask.v);
-    const __m256i iota = _mm256_add_epi32(_mm256_set1_epi32((int32_t)base), _mm256_setr_epi32(0,1,2,3,4,5,6,7));
+    const __m256i iota = _mm256_add_epi32(_mm256_set1_epi32(base), _mm256_setr_epi32(0,1,2,3,4,5,6,7));
     const __m256i perm = _mm256_loadu_si256((const __m256i*)avx2_iota_lut8.idx[m]);
     const __m256i packed = _mm256_permutevar8x32_epi32(iota, perm);
     const Integer cnt = (Integer)_mm_popcnt_u32(m);
@@ -2719,9 +2606,9 @@ namespace sctl { // AVX
     _mm256_maskstore_epi32((int*)ptr, smask, packed);
     return cnt;
   }
-  template <> inline Integer mask_compress_iota_store<VecData<double,4>>(const Mask<VecData<double,4>>& mask, Integer base, int32_t* ptr) {
+  template <> inline Integer mask_compress_iota_store<VecData<double,4>>(const Mask<VecData<double,4>>& mask, int32_t base, int32_t* ptr) {
     const unsigned m = (unsigned)_mm256_movemask_pd(mask.v);
-    const __m128i iota = _mm_add_epi32(_mm_set1_epi32((int32_t)base), _mm_setr_epi32(0,1,2,3));
+    const __m128i iota = _mm_add_epi32(_mm_set1_epi32(base), _mm_setr_epi32(0,1,2,3));
     const __m128i perm = _mm_loadu_si128((const __m128i*)avx2_iota_lut4.idx[m]);
     const __m128i packed = _mm_castps_si128(_mm_permutevar_ps(_mm_castsi128_ps(iota), perm));
     const Integer cnt = (Integer)_mm_popcnt_u32(m);
@@ -2730,9 +2617,9 @@ namespace sctl { // AVX
     return cnt;
   }
   // Fuse two 4-lane masks into one 8-lane compress (mirrors the AVX512 double-8 store2).
-  template <> inline Integer mask_compress_iota_store2<VecData<double,4>>(const Mask<VecData<double,4>>& mask_lo, const Mask<VecData<double,4>>& mask_hi, Integer base, int32_t* ptr) {
+  template <> inline Integer mask_compress_iota_store2<VecData<double,4>>(const Mask<VecData<double,4>>& mask_lo, const Mask<VecData<double,4>>& mask_hi, int32_t base, int32_t* ptr) {
     const unsigned m = (unsigned)_mm256_movemask_pd(mask_lo.v) | ((unsigned)_mm256_movemask_pd(mask_hi.v) << 4);
-    const __m256i iota = _mm256_add_epi32(_mm256_set1_epi32((int32_t)base), _mm256_setr_epi32(0,1,2,3,4,5,6,7));
+    const __m256i iota = _mm256_add_epi32(_mm256_set1_epi32(base), _mm256_setr_epi32(0,1,2,3,4,5,6,7));
     const __m256i perm = _mm256_loadu_si256((const __m256i*)avx2_iota_lut8.idx[m]);
     const __m256i packed = _mm256_permutevar8x32_epi32(iota, perm);
     const Integer cnt = (Integer)_mm_popcnt_u32(m);
@@ -3533,34 +3420,51 @@ namespace sctl { // AVX512
 
     __mmask8  v;
   };
+
+  // GCC 12 to 13.3 and 14.0 to 14.2 spill a compare's mask with a 16-bit store and reload it as 32 bits
+  // (GCC bug 117159); an explicit kmov to a general register keeps the zero-extension.
+#if defined(__GNUC__) && !defined(__clang__) && !defined(__INTEL_LLVM_COMPILER) && \
+    (__GNUC__ == 12 || (__GNUC__ == 13 && __GNUC_MINOR__ < 4) || (__GNUC__ == 14 && __GNUC_MINOR__ < 3))
+  inline unsigned mask_to_u32(__mmask16 k) {
+    unsigned m;
+    asm("kmovw %1, %0" : "=r"(m) : "k"(k));
+    return m;
+  }
+  inline unsigned mask_to_u32(__mmask8 k) {
+    unsigned m;
+    asm("kmovb %1, %0" : "=r"(m) : "k"(k));
+    return m;
+  }
+#else
+  inline unsigned mask_to_u32(__mmask16 k) { return _cvtmask16_u32(k); }
+  inline unsigned mask_to_u32(__mmask8 k) { return _cvtmask8_u32(k); }
 #endif
 
-  // Bitwise operators
-  template <> inline unsigned mask_popcnt_intrin<VecData<float, 16>>(const Mask<VecData<float, 16>>& v) { return _mm_popcnt_u32(_cvtmask16_u32(v.v)); }
-  template <> inline unsigned mask_popcnt_intrin<VecData<double, 8>>(const Mask<VecData<double, 8>>& v) { return _mm_popcnt_u32(_cvtmask8_u32(v.v)); }
-  template <> inline bool mask_any<VecData<float, 16>>(const Mask<VecData<float, 16>>& v) { return v.v; }
-  template <> inline bool mask_any<VecData<double, 8>>(const Mask<VecData<double, 8>>& v) { return v.v; }
+  template <> inline Integer mask_popcnt_intrin<VecData<float, 16>>(const Mask<VecData<float, 16>>& v) { return (Integer)_mm_popcnt_u32(mask_to_u32(v.v)); }
+  template <> inline Integer mask_popcnt_intrin<VecData<double, 8>>(const Mask<VecData<double, 8>>& v) { return (Integer)_mm_popcnt_u32(mask_to_u32(v.v)); }
+  template <> inline bool mask_any<VecData<float, 16>>(const Mask<VecData<float, 16>>& v) { return mask_to_u32(v.v) != 0; }
+  template <> inline bool mask_any<VecData<double, 8>>(const Mask<VecData<double, 8>>& v) { return mask_to_u32(v.v) != 0; }
   template <> inline void mask_compress_store<VecData<float, 16>>(const Mask<VecData<float, 16>>& mask, const VecData<float, 16>& v, float* ptr) { _mm512_mask_compressstoreu_ps(ptr, mask.v, v.v); }
   template <> inline void mask_compress_store<VecData<double, 8>>(const Mask<VecData<double, 8>>& mask, const VecData<double, 8>& v, double* ptr) { _mm512_mask_compressstoreu_pd(ptr, mask.v, v.v); }
-  template <> inline Integer mask_compress_iota_store<VecData<float, 16>>(const Mask<VecData<float, 16>>& mask, Integer base, int32_t* ptr) {
-    const __m512i iota = _mm512_add_epi32(_mm512_set1_epi32((int32_t)base), _mm512_setr_epi32(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15));
+  template <> inline Integer mask_compress_iota_store<VecData<float, 16>>(const Mask<VecData<float, 16>>& mask, int32_t base, int32_t* ptr) {
+    const __m512i iota = _mm512_add_epi32(_mm512_set1_epi32(base), _mm512_setr_epi32(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15));
     _mm512_mask_compressstoreu_epi32(ptr, mask.v, iota);
-    return (Integer)_mm_popcnt_u32(_cvtmask16_u32(mask.v));
+    return (Integer)_mm_popcnt_u32(mask_to_u32(mask.v));
   }
-  template <> inline Integer mask_compress_iota_store<VecData<double, 8>>(const Mask<VecData<double, 8>>& mask, Integer base, int32_t* ptr) {
-    // 512-bit epi32 compress (AVX512F only, no VL): low 8 lanes hold the iota, high 8 masked off.
-    const __m512i iota = _mm512_add_epi32(_mm512_set1_epi32((int32_t)base), _mm512_setr_epi32(0,1,2,3,4,5,6,7,0,0,0,0,0,0,0,0));
+  template <> inline Integer mask_compress_iota_store<VecData<double, 8>>(const Mask<VecData<double, 8>>& mask, int32_t base, int32_t* ptr) {
+    // 512-bit epi32 compress (needs no AVX512VL): low 8 lanes hold the iota, high 8 masked off.
+    const __m512i iota = _mm512_add_epi32(_mm512_set1_epi32(base), _mm512_setr_epi32(0,1,2,3,4,5,6,7,0,0,0,0,0,0,0,0));
     _mm512_mask_compressstoreu_epi32(ptr, (__mmask16)mask.v, iota);
-    return (Integer)_mm_popcnt_u32(_cvtmask8_u32(mask.v));
+    return (Integer)_mm_popcnt_u32(mask_to_u32(mask.v));
   }
-  template <> inline Integer mask_compress_iota_store2<VecData<double, 8>>(const Mask<VecData<double, 8>>& mask_lo, const Mask<VecData<double, 8>>& mask_hi, Integer base, int32_t* ptr) {
+  template <> inline Integer mask_compress_iota_store2<VecData<double, 8>>(const Mask<VecData<double, 8>>& mask_lo, const Mask<VecData<double, 8>>& mask_hi, int32_t base, int32_t* ptr) {
     // Both 8-lane masks packed into one 16-lane int32 compress -> one vpcompressd for 16 sources.
     // kunpackb builds the fused mask once in a k-register (consumed directly by the compress and
     // by a single kmov for the popcount), avoiding a redundant GPR shift/or materialization.
-    const __m512i iota = _mm512_add_epi32(_mm512_set1_epi32((int32_t)base), _mm512_setr_epi32(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15));
+    const __m512i iota = _mm512_add_epi32(_mm512_set1_epi32(base), _mm512_setr_epi32(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15));
     const __mmask16 m = _mm512_kunpackb(mask_hi.v, mask_lo.v);
     _mm512_mask_compressstoreu_epi32(ptr, m, iota);
-    return (Integer)_mm_popcnt_u32(_cvtmask16_u32(m));
+    return (Integer)_mm_popcnt_u32(mask_to_u32(m));
   }
   template <> inline float reduce_add_intrin<VecData<float, 16>>(const VecData<float, 16>& a) { return _mm512_reduce_add_ps(a.v); }
   template <> inline double reduce_add_intrin<VecData<double, 8>>(const VecData<double, 8>& a) { return _mm512_reduce_add_pd(a.v); }
@@ -3574,8 +3478,9 @@ namespace sctl { // AVX512
     result.v = _mm512_mask_expandloadu_pd(zero.v, mask.v, ptr);
     return result;
   }
+#endif
 
-
+  // Bitwise operators
 #if defined(__AVX512BW__)
   template <> inline Mask<VecData<int8_t ,64>> operator~<VecData<int8_t ,64>>(const Mask<VecData<int8_t ,64>>& vec) { return Mask<VecData<int8_t ,64>>(_knot_mask64(vec.v)); }
   template <> inline Mask<VecData<int16_t,32>> operator~<VecData<int16_t,32>>(const Mask<VecData<int16_t,32>>& vec) { return Mask<VecData<int16_t,32>>(_knot_mask32(vec.v)); }
@@ -3735,9 +3640,6 @@ namespace sctl { // AVX512
 
   template <> inline VecData<float,16> exp_intrin<VecData<float,16>>(const VecData<float,16>& x) { return _mm512_exp_ps(x.v); }
   template <> inline VecData<double,8> exp_intrin<VecData<double,8>>(const VecData<double,8>& x) { return _mm512_exp_pd(x.v); }
-
-  template <> inline VecData<float,16> erfc_intrin<VecData<float,16>>(const VecData<float,16>& x) { return _mm512_erfc_ps(x.v); }
-  template <> inline VecData<double,8> erfc_intrin<VecData<double,8>>(const VecData<double,8>& x) { return _mm512_erfc_pd(x.v); }
   #else
   template <> inline void sincos_intrin<VecData<float,16>>(VecData<float,16>& sinx, VecData<float,16>& cosx, const VecData<float,16>& x) {
     approx_sincos_intrin<(Integer)(TypeTraits<float>::SigBits/3.2)>(sinx, cosx, x); // TODO: determine constants more precisely
