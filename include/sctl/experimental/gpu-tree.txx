@@ -62,11 +62,14 @@ namespace detail {
 
 // Execution policy for thrust calls on backend memory, with temporaries drawn from the scratch
 // pool (thrust/cub otherwise cudaMalloc's them per call, which costs more than the work).
+// `par_nosync`: the algorithms only enqueue, so consecutive launches pipeline instead of each
+// waiting on its predecessor. Host readbacks stay correct because copies to host memory are
+// stream-ordered; MPI is not, so a `DeviceSynchronize` precedes each MPI call on a device buffer.
 template <template <class...> class DevVec, class T> auto scratch_policy() {
 #if defined(__CUDACC__) || defined(__HIPCC__)
   if constexpr (is_device_vector_v<DevVec<T>>) {
     static DeviceScratchAllocator<DevVec> alloc;
-    return thrust::cuda::par(alloc);
+    return thrust::cuda::par_nosync(alloc);
   } else
 #endif
   {
@@ -276,6 +279,7 @@ void alltoallvDevice(const Policy& pol, const void* sbuf, void* rbuf, const sctl
     thrust::copy(pol, s, s + n, It((char*)rbuf + rd[rank]));
   }
 #ifdef SCTL_HAVE_MPI
+  gpu_runtime::DeviceSynchronize();  // MPI reads the send buffer now, not after the queued work that fills it
   static const Long IMAX = 2147483647;
 
   // MPI_Alltoallv's counts and displacements are `int`, and a dof=3 payload at 100M items per rank
@@ -1764,6 +1768,7 @@ void GPUTree<Real, DIM, DevVec>::buildTreeDist(DevVec<Morton<DIM>>& tree, DataVi
     SCTL_ASSERT_MSG(M <= (Long)std::numeric_limits<int>::max(), "GPUTree::UpdateRefinement: M exceeds an MPI count");
     const MPI_Datatype dt = Comm::MPIDatatype<MortonT>();
     const int mc = (int)M;
+    detail::gpu_runtime::DeviceSynchronize();  // the copy above is still queued; MPI reads the buffer now
     MPI_Sendrecv(b + recv0,                     mc, dt, left,  27, b + recv0 + pt_mid.size(), mc, dt, right, 27, comm.GetMPI_Comm(), MPI_STATUS_IGNORE);
     MPI_Sendrecv(b + recv0 + pt_mid.size() - M, mc, dt, right, 28, b,                         mc, dt, left,  28, comm.GetMPI_Comm(), MPI_STATUS_IGNORE);
     pt_mid.swap(alt);
