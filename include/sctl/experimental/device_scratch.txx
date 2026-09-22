@@ -16,6 +16,8 @@
 #include "sctl/mem_mgr.txx"       // for advise_huge_pages, MemoryManager
 #include "sctl/ompUtils.hpp"      // for omp_par::copy, omp_par::prefault
 #include "sctl/ompUtils.txx"
+#include <iterator>
+
 #include "sctl/scratch_pool.txx"  // for ScratchBuf
 
 namespace gpu_tree {
@@ -71,12 +73,16 @@ inline bool CopyToHost(void* dst, const void* src, std::size_t bytes) {
 #endif
 }
 
-/** Copy `bytes` of host memory at `src` to device memory at `dst`. False if the runtime refused. */
-inline bool CopyToDevice(void* dst, const void* src, std::size_t bytes) {
+/**
+ * Enqueue a copy of `bytes` of host memory at `src` into device memory at `dst`, ordered on the
+ * default stream behind the work already queued and joining nothing. A pageable `src` is copied to
+ * staging before this returns, so the caller may free it. False if the runtime refused.
+ */
+inline bool CopyToDeviceAsync(void* dst, const void* src, std::size_t bytes) {
 #if defined(__HIPCC__)
-  return hipMemcpy(dst, src, bytes, hipMemcpyHostToDevice) == hipSuccess;
+  return hipMemcpyAsync(dst, src, bytes, hipMemcpyHostToDevice, 0) == hipSuccess;
 #elif defined(__CUDACC__)
-  return cudaMemcpy(dst, src, bytes, cudaMemcpyHostToDevice) == cudaSuccess;
+  return cudaMemcpyAsync(dst, src, bytes, cudaMemcpyHostToDevice, 0) == cudaSuccess;
 #else
   (void)dst;
   (void)src;
@@ -243,18 +249,12 @@ template <class SrcPtr, class DstPtr> inline void deviceToHost(SrcPtr src, Long 
   }
 }
 
-template <class SrcPtr, class DstPtr> inline void hostToDevice(SrcPtr src, Long n, DstPtr dst, bool pinned) {
-  using T = typename std::remove_cv<typename std::remove_reference<decltype(*src)>::type>::type;
+template <class SrcIt, class DstPtr> inline void hostToDevice(SrcIt src, Long n, DstPtr dst) {
+  using T = typename std::iterator_traits<DstPtr>::value_type;  // not decltype(*dst): a device_ptr dereferences to a device_reference
   if (!n) return;
   if constexpr (is_device_ptr<DstPtr>::value) {
-    const char* const refused = "hostToDevice: the device runtime refused the copy.";
-    if (pinned || gpu_runtime::HostPinned(&src[0], n * sizeof(T))) {
-      SCTL_ASSERT_MSG(gpu_runtime::CopyToDevice(thrust::raw_pointer_cast(dst), &src[0], n * sizeof(T)), refused);
-      return;
-    }
-    sctl::ScratchBuf<T> stage(n, pinnedStagingPool());
-    sctl::omp_par::copy(src, src + n, stage.begin());
-    SCTL_ASSERT_MSG(gpu_runtime::CopyToDevice(thrust::raw_pointer_cast(dst), &stage[0], n * sizeof(T)), refused);
+    const bool ok = gpu_runtime::CopyToDeviceAsync(thrust::raw_pointer_cast(dst), &*src, n * sizeof(T));
+    SCTL_ASSERT_MSG(ok, "hostToDevice: the device runtime refused the copy.");
   } else {
     sctl::omp_par::copy(src, src + n, dst);
   }

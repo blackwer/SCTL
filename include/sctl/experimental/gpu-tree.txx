@@ -832,7 +832,7 @@ void determineSplitters(sctl::ScratchBuf<Type>& splitters, const DevVec<Type>& p
       DeviceScratch<Type, DevVec> q_d(n);
       DeviceScratch<Long, DevVec> r_d(n);
       const auto pol = detail::scratch_policy<DevVec, Type>();
-      thrust::copy(q, q + n, q_d.begin());
+      detail::hostToDevice(q, n, q_d.begin());
       if (upper) thrust::upper_bound(pol, pt.begin(), pt.end(), q_d.begin(), q_d.end(), r_d.begin());
       else       thrust::lower_bound(pol, pt.begin(), pt.end(), q_d.begin(), q_d.end(), r_d.begin());
       thrust::copy(r_d.begin(), r_d.end(), r);
@@ -886,7 +886,7 @@ void determineSplitters(sctl::ScratchBuf<Type>& splitters, const DevVec<Type>& p
     if (!n) return;
     DeviceScratch<Long, DevVec> idx_d(n);
     DeviceScratch<Type, DevVec> gv_d(n);
-    thrust::copy(idxs, idxs + n, idx_d.begin());
+    detail::hostToDevice(idxs, n, idx_d.begin());
     thrust::gather(detail::scratch_policy<DevVec, Type>(), idx_d.begin(), idx_d.end(), pt.begin(), gv_d.begin());
     thrust::copy(gv_d.begin(), gv_d.end(), out);
   };
@@ -1252,8 +1252,8 @@ void ClosureFrontier(DevVec<Morton<DIM>>& S, sctl::Periodicity periodicity) {
         if (!seen) pl[i * K + pc[i]++] = v;
       }
     }
-    thrust::copy(pl.begin(), pl.end(), pl_d.begin());
-    thrust::copy(pc.begin(), pc.end(), pc_d.begin());
+    detail::hostToDevice(pl.begin(), pl.end() - pl.begin(), pl_d.begin());
+    detail::hostToDevice(pc.begin(), pc.end() - pc.begin(), pc_d.begin());
   }
 
   // Per-round buffers come from the scratch pool: `buf`, `add` (at most MAX_CHILD per frontier
@@ -1339,7 +1339,7 @@ void balanceTreeDist(DevVec<Morton<DIM>>& tree, const sctl::ScratchBuf<Morton<DI
     Long Nrecv = 0;
     { // S is sorted, so each rank's block is contiguous: split at the mins
       DeviceScratch<NodeT, DevVec> mins_d(np);
-      thrust::copy(mins.begin(), mins.end(), mins_d.begin());
+      detail::hostToDevice(mins.begin(), mins.end() - mins.begin(), mins_d.begin());
       Nrecv = detail::splitCounts(scnt.begin(), rcnt.begin(), S, (Long)S.size(), mins_d, comm);
     }
     DevVec<NodeT>& recv = detail::PersistentBuffer<NodeT, DevVec, detail::Buf::ClosureRecv>();
@@ -1442,7 +1442,7 @@ void addGhostNodes(DevVec<Morton<DIM>>& tree, const sctl::ScratchBuf<Morton<DIM>
   const NodeT lo = mins[rank], hi = (rank + 1 < np) ? mins[rank + 1] : NodeT{}.Next();
   const auto pol = detail::scratch_policy<DevVec, NodeT>();
   DeviceScratch<NodeT, DevVec> mins_d(np);
-  thrust::copy(mins.begin(), mins.end(), mins_d.begin());
+  detail::hostToDevice(mins.begin(), mins.end() - mins.begin(), mins_d.begin());
   // halo_size < 0 exchanges no neighbor nodes, so the scan is skipped and `pairs` stays empty. The
   // count and write passes are separate blocks because `pairs` is a pool slice: its size has to be
   // known at construction, and the scan is what produces it.
@@ -1476,7 +1476,7 @@ void addGhostNodes(DevVec<Morton<DIM>>& tree, const sctl::ScratchBuf<Morton<DIM>
     sctl::ScratchBuf<GhostPair<DIM>> keys(np);
     for (Long r = 0; r < np; r++) keys[r] = GhostPair<DIM>{r, NodeT{}};
     DeviceScratch<GhostPair<DIM>, DevVec> keys_d(np);
-    thrust::copy(keys.begin(), keys.end(), keys_d.begin());
+    detail::hostToDevice(keys.begin(), keys.end() - keys.begin(), keys_d.begin());
     Nrecv = detail::splitCounts(scnt.begin(), rcnt.begin(), pairs, npairs, keys_d, comm);
     thrust::transform(pol, pairs.begin(), pairs.begin() + npairs, send_mid.begin(), GhostPairToMid<DIM>{});
   }
@@ -1729,7 +1729,7 @@ void GPUTree<Real, DIM, DevVec>::buildTreeDist(DevVec<Morton<DIM>>& tree, DataVi
     sctl::ScratchBuf<MortonT> spl_h(np - 1);
     detail_determineSplitters::determineSplitters(spl_h, pt_mid, comm);
     DeviceScratch<MortonT, DevVec> spl_d(np - 1);
-    thrust::copy(spl_h.begin(), spl_h.end(), spl_d.begin());
+    detail::hostToDevice(spl_h.begin(), spl_h.end() - spl_h.begin(), spl_d.begin());
 
     sctl::ScratchBuf<Long> scnt(np), rcnt(np);
     const Long Nrecv = detail::splitCounts(scnt.begin(), rcnt.begin(), pt_mid, (Long)pt_mid.size(), spl_d, comm);
@@ -1885,7 +1885,7 @@ void GPUTree<Real, DIM, DevVec>::UpdateRefinement(DataView<const Real, DevVec> c
       detail::deviceToHost(old_mid.data(), h.Dim(), h.begin());
       comm_.PartitionS(h, mins_[rank]);
       old_mid.resize(h.Dim());
-      thrust::copy(h.begin(), h.end(), old_mid.begin());
+      detail::hostToDevice(h.begin(), h.end() - h.begin(), old_mid.begin());
     }
     No = (Long)old_mid.size();
     { // per new node, [range[i], range[i+1]) into old_mid: searched where the nodes live, so only range crosses the bus

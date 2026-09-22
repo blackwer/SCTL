@@ -81,7 +81,7 @@ void gatherSplitters(DeviceScratch<Key, DevVec>& spl, const Key* splitter, const
   } else {
     detail_determineSplitters::determineSplitters(h, keys, comm);
   }
-  thrust::copy(h.begin(), h.end(), spl.begin());
+  detail::hostToDevice(h.begin(), h.end() - h.begin(), spl.begin());
 }
 
 }  // namespace detail_sortScatter
