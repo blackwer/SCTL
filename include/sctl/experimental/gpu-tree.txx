@@ -19,6 +19,7 @@
 #include <thrust/scan.h>
 #include <thrust/binary_search.h>
 #include <thrust/sort.h>
+#include <thrust/sequence.h>
 #include <thrust/transform.h>
 #include <thrust/unique.h>
 #include <thrust/execution_policy.h>
@@ -97,7 +98,7 @@ template <template <class...> class DevVec> struct StageTimer {
 };
 
 // Which retained buffer a `PersistentBuffer` call means; no two uses may share a tag.
-enum class Buf { PtMid, PtAlt, BcastOut, Closure, Frontier, ClosureRecv, GhostMerge, DataRecv,
+enum class Buf { PtMid, PtAlt, PtPerm, BcastOut, Closure, Frontier, ClosureRecv, GhostMerge, DataRecv,
                  PtSend, PtRecv, PtSortK, MigData, OldMid, SwapOut };
 
 // Functor (not lambda) so nvcc captures it across thrust kernel boundaries.
@@ -423,16 +424,23 @@ template <Integer DIM, WalkMode MODE> struct AnchorWalkFunctor {
   }
 };
 
-// Exclusive scan of counts[0,n) into `offsets`, returning the total the scan already summed --
-// reading back the last offset and count avoids a second pass over counts just to total them.
+/** `counts[0,n)` followed by a zero, so an exclusive scan over n+1 entries ends in the total. */
+struct TailZero {
+  const Long* counts;
+  Long n;
+  SCTL_GPU_HD Long operator()(Long i) const { return i < n ? counts[i] : Long(0); }
+};
+
+// Exclusive scan of counts[0,n) into `offsets[0,n]`; `offsets[n]` is the total, which is returned.
+// `offsets` must hold n+1 entries.
 template <class Policy, template <class...> class DevVec>
 Long scanCounts(const Policy& pol, const DeviceScratch<Long, DevVec>& counts, DeviceScratch<Long, DevVec>& offsets, Long n) {
-  if (n <= 0) return 0;  // the reads below are of the last entry, which an empty range does not have
-  thrust::exclusive_scan(pol, counts.begin(), counts.begin() + n, offsets.begin(), Long(0));
-  Long tail[2] = {0, 0};
-  thrust::copy(offsets.begin() + (n - 1), offsets.begin() + n, &tail[0]);
-  thrust::copy(counts.begin() + (n - 1), counts.begin() + n, &tail[1]);
-  return tail[0] + tail[1];
+  if (n <= 0) return 0;
+  const auto in = thrust::make_transform_iterator(thrust::counting_iterator<Long>(0), TailZero{thrust::raw_pointer_cast(counts.data()), n});
+  thrust::exclusive_scan(pol, in, in + n + 1, offsets.begin(), Long(0));
+  Long total = 0;
+  thrust::copy(offsets.begin() + n, offsets.begin() + n + 1, &total);
+  return total;
 }
 
 // Turn a runtime periodicity mask into a template parameter: `f` is called with the matching mask as
@@ -489,7 +497,7 @@ void anchorWalkWrite(Morton<DIM>* out, const Long* offsets, const Morton<DIM>* a
 // The complete preorder tree over [start_node, end_target) with `anchors` as its forced leaves.
 template <Integer DIM, template <class...> class DevVec>
 void treeFromAnchors(DevVec<Morton<DIM>>& tree, const Morton<DIM>* anchors_ptr, Long n, const Morton<DIM>& start_node, const Morton<DIM>& end_target) {
-  DeviceScratch<Long, DevVec> offsets(n + 1);
+  DeviceScratch<Long, DevVec> offsets(n + 2);  // n+1 pairs, and the total past them
   const Long total = anchorWalkCount<DIM, DevVec>(offsets, anchors_ptr, n, start_node, end_target);
   resizeDiscard(tree, total);  // the write pass below covers all of it
   anchorWalkWrite<DIM, DevVec>(thrust::raw_pointer_cast(tree.data()), thrust::raw_pointer_cast(offsets.data()), anchors_ptr, n, start_node, end_target);
@@ -701,11 +709,12 @@ template <Integer DIM, template <class...> class DevVec>
 void buildTreeGpuChunked(DevVec<Morton<DIM>>& tree, const DevVec<MortonCode<DIM>>& pt_mid, Long M, Long N, Long base, Morton<DIM> start_bnd, Morton<DIM> end_bnd) {  // walks pt_mid[base, base+N) (+M halo slack beyond)
   if (rootOnlyTree<DIM, DevVec>(tree, N, M, start_bnd, end_bnd)) return;
 
-  const Long min_chunk = std::max<Long>(4 * M + 1, 64);
+  // A chunk's anchor reads pt[begin + M], so M+1 points is the smallest chunk in bounds.
+  const Long min_chunk = std::max<Long>(M + 1, 64);
   const Long nthreads  = std::clamp<Long>(N / min_chunk, 1, 65536);
 
   const auto pol = detail::scratch_policy<DevVec, MortonCode<DIM>>();
-  DeviceScratch<Long, DevVec> counts(nthreads), offsets(nthreads);
+  DeviceScratch<Long, DevVec> counts(nthreads), offsets(nthreads + 1);
   ChunkedWalkFunctor<DIM, WalkMode::Count> fc{thrust::raw_pointer_cast(pt_mid.data()) + base, N, M, nthreads, nullptr, nullptr, start_bnd, end_bnd};
   thrust::transform(pol, thrust::counting_iterator<Long>(0), thrust::counting_iterator<Long>(nthreads), counts.begin(), fc);
   const Long total = detail::scanCounts(pol, counts, offsets, nthreads);
@@ -1204,29 +1213,29 @@ template <Integer DIM, sctl::Periodicity PER> struct ParentNbrSearch {
   Long base;
   Morton<DIM>* out;          // MAX_CHILD slots per frontier node
 
-  SCTL_GPU_HD void operator()(Long t) const {
+  // One thread per (frontier node, slot).
+  SCTL_GPU_HD void operator()(Long e) const {
     using NodeT = Morton<DIM>;
+    const Long t = base + e / MAX_CHILD;
+    const Integer j = (Integer)(e % MAX_CHILD);
     NodeT inv;
     inv.depth = NodeT::INVALID_DEPTH;
-    NodeT* const w = out + (t - base) * MAX_CHILD;
+    NodeT& w = out[e];
     const NodeT s = F[t];
     const Integer d = s.Depth();
-    Integer j = 0;
-    if (d) {
-      const NodeT p = s.Ancestor((uint8_t)(d - 1));
-      const auto pnbrs = p.template NbrList<PER>((uint8_t)(d - 1));
-      const Integer p2n = s.Path2Node();
-      for (; j < p_nbr_cnt[p2n]; j++) {
-        const NodeT q = pnbrs[p_nbr_lst[p2n * K + j]];
-        if (q.Depth() == NodeT::INVALID_DEPTH) {
-          w[j] = inv;
-          continue;
-        }
-        const Long lo = detail::lowerBound(S, Long(0), ns, q);
-        w[j] = (lo < ns && !(S[lo] < q) && !(q < S[lo])) ? inv : q;
-      }
+    const Integer p2n = s.Path2Node();
+    if (!d || j >= p_nbr_cnt[p2n]) {
+      w = inv;
+      return;
     }
-    for (; j < MAX_CHILD; j++) w[j] = inv;
+    const NodeT p = s.Ancestor((uint8_t)(d - 1));
+    const NodeT q = p.template NbrList<PER>((uint8_t)(d - 1))[p_nbr_lst[p2n * K + j]];
+    if (q.Depth() == NodeT::INVALID_DEPTH) {
+      w = inv;
+      return;
+    }
+    const Long lo = detail::lowerBound(S, Long(0), ns, q);
+    w = (lo < ns && !(S[lo] < q) && !(q < S[lo])) ? inv : q;
   }
 };
 
@@ -1282,7 +1291,7 @@ void ClosureFrontier(DevVec<Morton<DIM>>& S, sctl::Periodicity periodicity) {
     for (Long c0 = 0; c0 < nf; c0 += chunk) {
       const Long nc = std::min<Long>(chunk, nf - c0);
       detail::dispatchPeriodicity<DIM>(periodicity, [&pol, c0, nc, &F, &S, ns, &pl_d, &pc_d, &buf](auto per_c) {
-        thrust::for_each_n(pol, thrust::counting_iterator<Long>(c0), nc, ParentNbrSearch<DIM, decltype(per_c)::value>{
+        thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), nc * MAX_CHILD, ParentNbrSearch<DIM, decltype(per_c)::value>{
             thrust::raw_pointer_cast(F.data()), thrust::raw_pointer_cast(S.data()), ns,
             thrust::raw_pointer_cast(pl_d.data()), thrust::raw_pointer_cast(pc_d.data()), c0, thrust::raw_pointer_cast(buf.data())});
       });
@@ -1567,29 +1576,28 @@ template <Integer DIM> struct ChildPassFunctor {
   }
 };
 
-// Pass 3: neighbors by descent from the root. The device runs it for every node; the host runs it
-// for the root only and propagates level by level below. The one place periodicity is consulted.
+// Pass 3: neighbors by descent from the root, one thread per (node, neighbor slot). The device runs
+// it for every node; the host runs it for the root only and propagates level by level below. The one
+// place periodicity is consulted.
 template <Integer DIM, sctl::Periodicity PER> struct NbrDescentFunctor {
   static constexpr Integer MAX_CHILD = 1 << DIM;
   static constexpr Integer MAX_NBRS = sctl::pow<DIM, Integer>(3);
   const Morton<DIM>* tree;
   const Long* ch;
   Long* nbr;               // MAX_NBRS per node
-  SCTL_GPU_HD void operator()(Long i) const {
+  SCTL_GPU_HD void operator()(Long e) const {
+    const Long i = e / MAX_NBRS;
+    const Integer k = (Integer)(e % MAX_NBRS);
     const Morton<DIM> X = tree[i];
     const Integer d = X.Depth();
-    const auto nl = X.template NbrList<PER>((uint8_t)d);
-    Long* const out = nbr + i * MAX_NBRS;
-    for (Integer k = 0; k < MAX_NBRS; k++) {
-      const Morton<DIM>& m = nl[k];
-      if (m.depth == Morton<DIM>::INVALID_DEPTH) {
-        out[k] = -1;
-        continue;
-      }
-      Long cur = 0;  // the root is at index 0
-      for (Integer l = 1; l <= d && cur >= 0; l++) cur = ch[cur * MAX_CHILD + m.Ancestor((uint8_t)l).Path2Node()];
-      out[k] = cur;
+    const Morton<DIM> m = X.template NbrList<PER>((uint8_t)d)[k];
+    if (m.depth == Morton<DIM>::INVALID_DEPTH) {
+      nbr[e] = -1;
+      return;
     }
+    Long cur = 0;  // the root is at index 0
+    for (Integer l = 1; l <= d && cur >= 0; l++) cur = ch[cur * MAX_CHILD + m.Ancestor((uint8_t)l).Path2Node()];
+    nbr[e] = cur;
   }
 };
 
@@ -1635,7 +1643,7 @@ template <Integer DIM> struct NbrPropagateFunctor {
 // smallest per-rank count. Concatenated over ranks, the output matches the single-rank build.
 
 template <class Real, Integer DIM, template <class...> class DevVec>
-void GPUTree<Real, DIM, DevVec>::buildTreeDist(DevVec<Morton<DIM>>& tree, DataView<const Real, DevVec> coord, Long M, const Comm& comm, bool balance21, sctl::Periodicity periodicity, Integer halo_size, Long* owned_range, Morton<DIM>* partition, DevVec<NodeAttr>* node_attr, NodeLists<DevVec>* node_lists, DevVec<Morton<DIM>>* user_mid, sctl::Vector<Long>* user_cnt) {
+void GPUTree<Real, DIM, DevVec>::buildTreeDist(DevVec<Morton<DIM>>& tree, DataView<const Real, DevVec> coord, Long M, const Comm& comm, bool balance21, sctl::Periodicity periodicity, Integer halo_size, Long* owned_range, Morton<DIM>* partition, DevVec<NodeAttr>* node_attr, NodeLists<DevVec>* node_lists, DevVec<Morton<DIM>>* user_mid, sctl::Vector<Long>* user_cnt, DevVec<MortonCode<DIM>>* sort_keys, DevVec<Long>* sort_perm) {
 
   using MortonT = MortonCode<DIM>;
   const auto pol = detail::scratch_policy<DevVec, MortonT>();
@@ -1679,13 +1687,13 @@ void GPUTree<Real, DIM, DevVec>::buildTreeDist(DevVec<Morton<DIM>>& tree, DataVi
         // parallelism and the shallow levels stay in cache, where level-ordered launches idle
         // between levels.
         detail::dispatchPeriodicity<DIM>(periodicity, [&pol, Nt, tp, cp, nbp](auto per_c) {
-          thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Nt, detail_nodeLists::NbrDescentFunctor<DIM, decltype(per_c)::value>{tp, cp, nbp});
+          thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Nt * MAX_NBRS, detail_nodeLists::NbrDescentFunctor<DIM, decltype(per_c)::value>{tp, cp, nbp});
         });
       } else {
         // The host is the opposite: the descents are dependent random loads, so seed the root's row
         // and propagate level by level instead.
         if (Nt) detail::dispatchPeriodicity<DIM>(periodicity, [&pol, tp, cp, nbp](auto per_c) {  // the root is always index 0
-          thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Long(1), detail_nodeLists::NbrDescentFunctor<DIM, decltype(per_c)::value>{tp, cp, nbp});
+          thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Long(MAX_NBRS), detail_nodeLists::NbrDescentFunctor<DIM, decltype(per_c)::value>{tp, cp, nbp});
         });
         for (Integer d = 1; d <= Morton<DIM>::MAX_DEPTH; d++)
           thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Nt, detail_nodeLists::NbrPropagateFunctor<DIM>{tp, pp, cp, nbp, d});
@@ -1721,7 +1729,17 @@ void GPUTree<Real, DIM, DevVec>::buildTreeDist(DevVec<Morton<DIM>>& tree, DataVi
       #pragma omp parallel for schedule(static)
       for (Long i = 0; i < Nloc; ++i) mp[i] = MortonT(cp + i * DIM);
     }
-    detail::local_sort(pol, pt_mid, Nloc);
+    // The codes sorted with their source positions, kept for a particle group over the same
+    // coordinates (PtTree::AddParticles).
+    DevVec<Long>& perm = detail::PersistentBuffer<Long, DevVec, detail::Buf::PtPerm>();
+    detail::resizeDiscard(perm, Nloc);
+    thrust::sequence(pol, perm.begin(), perm.end(), Long(0));
+    detail::local_sort_by_key(pol, pt_mid, perm, Nloc);
+    if (sort_keys) {
+      detail::resizeDiscard(*sort_keys, Nloc);
+      thrust::copy(pol, pt_mid.begin(), pt_mid.end(), sort_keys->begin());
+    }
+    if (sort_perm) sort_perm->swap(perm);
   }
 
   #ifdef SCTL_HAVE_MPI
@@ -1869,11 +1887,15 @@ void GPUTree<Real, DIM, DevVec>::UpdateRefinement(DataView<const Real, DevVec> c
   { // rebuild
     mins_.ReInit(np);
     Long owned[2] = {0, 0};
+    refine_keys_.clear();
     buildTreeDist(node_mid_, coord, M, comm_, balance21, periodicity, halo_size, owned,
-                  &mins_[0], &node_attr_, &node_lists_, &user_mid_, &user_cnt_);  // np >= 1
+                  &mins_[0], &node_attr_, &node_lists_, &user_mid_, &user_cnt_, &refine_keys_, &refine_perm_);  // np >= 1
     owned_begin_ = owned[0];
     owned_end_ = owned[1];
     host_mid_stale_ = true;
+    // a root-only tree sorts nothing
+    refine_coord_ = ((Long)refine_keys_.size() * DIM == coord.size() && coord.size()) ? coord.data() : nullptr;
+    refine_coord_n_ = coord.size();
   }
   if (!any_base) return;
 
@@ -2423,10 +2445,17 @@ void PtTree<Real, DIM, DevVec, BaseTree>::AddParticles(const std::string& name, 
 
   // The key is the bare MortonCode, not the Morton: every particle sits at MAX_DEPTH, so the depth
   // would only double the key and the exchange volume (NodeToCodeFunctor: why codes alone order them).
-  DeviceScratch<MortonCode<DIM>, DevVec> key(Nloc);
-  thrust::transform(pol, thrust::counting_iterator<Long>(0), thrust::counting_iterator<Long>(Nloc), key.begin(),
-                    detail::MakeMortonFunctor<Real, DIM>{thrust::raw_pointer_cast(coord.data())});
-  groups_.try_emplace(name, this->GetComm()).first->second.Init(DataView<const MortonCode<DIM>, DevVec>{thrust::raw_pointer_cast(key.data()), Nloc}, &partition_codes_[this->GetComm().Rank()]);
+  auto& group = groups_.try_emplace(name, this->GetComm()).first->second;
+  DevVec<MortonCode<DIM>> sorted;
+  DevVec<Long> pre;
+  if (this->takeRefinementSort(coord, sorted, pre)) {
+    group.Init(std::move(sorted), std::move(pre), &partition_codes_[this->GetComm().Rank()]);
+  } else {
+    DeviceScratch<MortonCode<DIM>, DevVec> key(Nloc);
+    thrust::transform(pol, thrust::counting_iterator<Long>(0), thrust::counting_iterator<Long>(Nloc), key.begin(),
+                      detail::MakeMortonFunctor<Real, DIM>{thrust::raw_pointer_cast(coord.data())});
+    group.Init(DataView<const MortonCode<DIM>, DevVec>{thrust::raw_pointer_cast(key.data()), Nloc}, &partition_codes_[this->GetComm().Rank()]);
+  }
   for (auto& kv : pt_data_) {  // an existing group's data sets no longer match its particles: emptied, storage kept
     if (kv.second.particle_name == name && kv.first != name) {
       this->NodeData_(kv.first).resize(0);

@@ -10,14 +10,13 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <type_traits>
 #include "sctl/experimental/device_scratch.hpp"
 #include "sctl/iterator.txx"      // for Ptr2Itr
 #include "sctl/mem_mgr.txx"       // for advise_huge_pages, MemoryManager
 #include "sctl/ompUtils.hpp"      // for omp_par::copy, omp_par::prefault
 #include "sctl/ompUtils.txx"
-#include <iterator>
-
 #include "sctl/scratch_pool.txx"  // for ScratchBuf
 
 namespace gpu_tree {
@@ -73,11 +72,7 @@ inline bool CopyToHost(void* dst, const void* src, std::size_t bytes) {
 #endif
 }
 
-/**
- * Enqueue a copy of `bytes` of host memory at `src` into device memory at `dst`, ordered on the
- * default stream behind the work already queued and joining nothing. A pageable `src` is copied to
- * staging before this returns, so the caller may free it. False if the runtime refused.
- */
+/** Enqueue a copy of `bytes` of host memory at `src` to device memory at `dst` on the default stream. False if the runtime refused. */
 inline bool CopyToDeviceAsync(void* dst, const void* src, std::size_t bytes) {
 #if defined(__HIPCC__)
   return hipMemcpyAsync(dst, src, bytes, hipMemcpyHostToDevice, 0) == hipSuccess;
@@ -250,7 +245,7 @@ template <class SrcPtr, class DstPtr> inline void deviceToHost(SrcPtr src, Long 
 }
 
 template <class SrcIt, class DstPtr> inline void hostToDevice(SrcIt src, Long n, DstPtr dst) {
-  using T = typename std::iterator_traits<DstPtr>::value_type;  // not decltype(*dst): a device_ptr dereferences to a device_reference
+  using T = typename std::iterator_traits<DstPtr>::value_type;
   if (!n) return;
   if constexpr (is_device_ptr<DstPtr>::value) {
     const bool ok = gpu_runtime::CopyToDeviceAsync(thrust::raw_pointer_cast(dst), &*src, n * sizeof(T));

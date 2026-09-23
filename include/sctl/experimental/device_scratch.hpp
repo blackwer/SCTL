@@ -65,11 +65,7 @@ using ScratchIterator = std::conditional_t<is_device_vector_v<DevVec<T>>, thrust
  */
 template <class SrcPtr, class DstPtr> void deviceToHost(SrcPtr src, Long n, DstPtr dst, bool pinned = false);
 
-/**
- * `n` elements from host memory at `src` into the backend range at `dst`. On a device backend the
- * copy is enqueued and nothing waits for it: a kernel reading `dst` is ordered behind it, and the
- * source may go out of scope as soon as this returns.
- */
+/** `n` elements of a host buffer into device storage, enqueued on the default stream; nothing waits for it. */
 template <class SrcIt, class DstPtr> void hostToDevice(SrcIt src, Long n, DstPtr dst);
 
 /**

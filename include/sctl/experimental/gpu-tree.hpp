@@ -229,6 +229,15 @@ template <class Real, Integer DIM, template <class...> class DevVec = HostVector
 
   std::set<std::string> data_moved_by_derived_;  ///< payloads a derived class moves itself after a rebuild; UpdateRefinement skips them
 
+  /** The codes and source positions of the last `UpdateRefinement`'s local sort, if `coord` is the array it sorted; handed over once. */
+  bool takeRefinementSort(DataView<const Real, DevVec> coord, DevVec<MortonCode<DIM>>& keys, DevVec<Long>& perm) {
+    if (!refine_coord_ || coord.data() != refine_coord_ || coord.size() != refine_coord_n_) return false;
+    keys.swap(refine_keys_);
+    perm.swap(refine_perm_);
+    refine_coord_ = nullptr;
+    return true;
+  }
+
  private:
 
   /**
@@ -240,7 +249,7 @@ template <class Real, Integer DIM, template <class...> class DevVec = HostVector
    * null. Collective. When all particles fit one leaf, rank 0 holds the root alone and every other
    * rank an empty tree.
    */
-  static void buildTreeDist(DevVec<Morton<DIM>>& tree, DataView<const Real, DevVec> coord, Long M, const Comm& comm, bool balance21, sctl::Periodicity periodicity, Integer halo_size, Long* owned_range, Morton<DIM>* partition, DevVec<NodeAttr>* node_attr, NodeLists<DevVec>* node_lists, DevVec<Morton<DIM>>* user_mid, sctl::Vector<Long>* user_cnt);
+  static void buildTreeDist(DevVec<Morton<DIM>>& tree, DataView<const Real, DevVec> coord, Long M, const Comm& comm, bool balance21, sctl::Periodicity periodicity, Integer halo_size, Long* owned_range, Morton<DIM>* partition, DevVec<NodeAttr>* node_attr, NodeLists<DevVec>* node_lists, DevVec<Morton<DIM>>* user_mid, sctl::Vector<Long>* user_cnt, DevVec<MortonCode<DIM>>* sort_keys, DevVec<Long>* sort_perm);
 
   /** The view behind both `GetData` overloads; `VT` may be const. */
   template <class VT> void dataView(View<VT>& data, sctl::Vector<Long>& cnt, const std::string& name) const;
@@ -258,6 +267,11 @@ template <class Real, Integer DIM, template <class...> class DevVec = HostVector
   DevVec<NodeAttr> node_attr_;
   NodeLists<DevVec> node_lists_;
   Long owned_begin_ = 0, owned_end_ = 0;
+
+  DevVec<MortonCode<DIM>> refine_keys_;  ///< the refinement's locally sorted codes, until a group takes them
+  DevVec<Long> refine_perm_;             ///< where each of them came from
+  const Real* refine_coord_ = nullptr;   ///< the coordinates they were sorted from, or null once taken
+  Long refine_coord_n_ = 0;
 
   std::map<std::string, DevVec<char>> node_data_;  ///< payload, type-erased to bytes
   std::map<std::string, sctl::Vector<Long>> node_cnt_;

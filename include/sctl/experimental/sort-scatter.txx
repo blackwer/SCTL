@@ -88,19 +88,27 @@ void gatherSplitters(DeviceScratch<Key, DevVec>& spl, const Key* splitter, const
 
 template <class Key, template <class...> class DevVec>
 void SortScatter<Key, DevVec>::Init(DataView<const Key, DevVec> keys, const Key* splitter) {
-  const Long np = comm_.Size();
+  // stage 1: sort this rank's own keys, carrying their handed positions
   const auto pol = detail::scratch_policy<DevVec, Key>();
   const Long Nloc = keys.size();
   detail_sortScatter::resizeDiscard(keys_, Nloc);
   thrust::copy(pol, keys.begin(), keys.end(), keys_.begin());
+  detail_sortScatter::resizeDiscard(plan_.pre, Nloc);
+  thrust::sequence(pol, plan_.pre.begin(), plan_.pre.end(), Long(0));
+  detail::local_sort_by_key(pol, keys_, plan_.pre, Nloc);
+  Init(std::move(keys_), std::move(plan_.pre), splitter);
+}
+
+template <class Key, template <class...> class DevVec>
+void SortScatter<Key, DevVec>::Init(DevVec<Key> sorted_keys, DevVec<Long> perm, const Key* splitter) {
+  const Long np = comm_.Size();
+  SCTL_ASSERT_MSG(sorted_keys.size() == perm.size(), "SortScatter::Init: one position per key.");
+  const auto pol = detail::scratch_policy<DevVec, Key>();
+  const Long Nloc = (Long)sorted_keys.size();
+  keys_ = std::move(sorted_keys);
   plan_.Reset();
   plan_.Nloc = Nloc;
-
-  { // stage 1: sort this rank's own keys, carrying their handed positions
-    detail_sortScatter::resizeDiscard(plan_.pre, Nloc);
-    thrust::sequence(pol, plan_.pre.begin(), plan_.pre.end(), Long(0));
-    detail::local_sort_by_key(pol, keys_, plan_.pre, Nloc);
-  }
+  plan_.pre = std::move(perm);
 
   plan_.Nmid = Nloc;
   if (np > 1) {

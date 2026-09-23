@@ -61,6 +61,9 @@ class SortScatter {
    */
   void Init(DataView<const Key, DevVec> keys, const Key* splitter, const Comm& comm);
 
+  /** The same with the local sort already done: `sorted_keys` in order, `perm[i]` where sorted key i came from. */
+  void Init(DevVec<Key> sorted_keys, DevVec<Long> perm, const Key* splitter);
+
   /**
    * Moves the sorted keys between ranks according to new splitters. Data already in the order of SortedKeys() can be
    * moved along with detail::partitionN.
