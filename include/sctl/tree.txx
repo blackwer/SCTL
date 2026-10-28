@@ -7,6 +7,7 @@
 
 #include <stdlib.h>               // for drand48
 #include <algorithm>              // for lower_bound, max, min, sort
+#include <array>                  // for array
 #include <cstdint>                // for int32_t, uint8_t, uint64_t
 #include <cstdlib>                // for std::aligned_alloc, std::free
 #include <cstring>                // for memcpy
@@ -35,8 +36,6 @@
 #include "sctl/vector.txx"        // for Vector::operator[], Vector::begin
 #include "sctl/vtudata.hpp"       // for VTUData
 #include "sctl/vtudata.txx"       // for VTUData::WriteVTK
-#include "sctl/matrix.hpp"
-#include "sctl/matrix.txx"
 
 namespace sctl {
 
@@ -180,18 +179,21 @@ namespace sctl {
       Long cur_cnt_{block_elems};
     };
 
+    // A MAX_CHILD x MAX_NBRS table, [p2n][nbr_idx]
+    template <Integer DIM, class T> using NbrTable = std::array<std::array<T, sctl::pow<DIM,Integer>(3)>, (1u << DIM)>;
+
     struct NbrPath {
       Integer p_nbr, p_nbr_child;
     };
 
     // Neighbor k of child p2n = child `p_nbr_child` of parent-neighbor `p_nbr`: two pointer hops.
-    template <Integer DIM> const Matrix<NbrPath>& nbr_path_table() {
+    template <Integer DIM> const NbrTable<DIM, NbrPath>& nbr_path_table() {
       static constexpr Integer MAX_CHILD = (1u << DIM);
       static constexpr Integer MAX_NBRS = sctl::pow<DIM,Integer>(3);
-      static const Matrix<NbrPath> tbl = []() {
+      static const NbrTable<DIM, NbrPath> tbl = []() {
         const auto parent = (Morton<DIM>{}).Children()[0].Children()[MAX_CHILD-1];
         const auto parent_nbr_lst = parent.NbrList(parent.Depth(), Periodicity::NONE); // interior node, so periodicity doesn't matter
-        Matrix<NbrPath> t(MAX_CHILD, MAX_NBRS);
+        NbrTable<DIM, NbrPath> t{};
         for (Integer p2n = 0; p2n < MAX_CHILD; p2n++) {
           const auto n0 = parent.Children()[p2n];
           const auto nlst = n0.NbrList(n0.Depth(), Periodicity::NONE);
@@ -228,7 +230,7 @@ namespace sctl {
       static constexpr Integer MAX_DEPTH = Morton<DIM>::MAX_DEPTH;
       static const auto& nbr_path = nbr_path_table<DIM>();  // static: lambdas below capture nothing
       static const auto reverse_nbr_idx = []() { // index of a node in its k-th neighbor's own neighbor list
-        Matrix<Integer> t(MAX_CHILD, MAX_NBRS);
+        NbrTable<DIM, Integer> t{};
         const auto parent = (Morton<DIM>{}).Children()[0].Children()[MAX_CHILD-1];
         for (Integer p2n = 0; p2n < MAX_CHILD; p2n++) {
           const auto n0 = parent.Children()[p2n];
@@ -246,8 +248,8 @@ namespace sctl {
         return t;
       }();
       { // local fixpoint: add the parent-neighbors every non-leaf node needs
-        static std::pair<Matrix<Integer>,Vector<Integer>> balance21_p_nbrs_precomp = []() { // for each p2n, list of parent's neighbors that must exist to be 2:1 balanced
-          Matrix<Integer> p_nbr_lst(MAX_CHILD, MAX_NBRS);
+        static std::pair<NbrTable<DIM, Integer>,Vector<Integer>> balance21_p_nbrs_precomp = []() { // for each p2n, list of parent's neighbors that must exist to be 2:1 balanced
+          NbrTable<DIM, Integer> p_nbr_lst{};
           Vector<Integer> p_nbr_cnt(MAX_CHILD);
           p_nbr_cnt = 0;
           for (Integer i = 0; i < MAX_CHILD; i++) {
@@ -261,7 +263,7 @@ namespace sctl {
           }
           return std::make_pair(p_nbr_lst, p_nbr_cnt);
         }();
-        const Matrix<Integer> &p_nbr_lst = balance21_p_nbrs_precomp.first; // MAX_CHILD x MAX_NBRS
+        const NbrTable<DIM, Integer> &p_nbr_lst = balance21_p_nbrs_precomp.first; // MAX_CHILD x MAX_NBRS
         const Vector<Integer> &p_nbr_cnt = balance21_p_nbrs_precomp.second; // MAX_CHILD
         const Long Nnodes = parent_mid.Dim();
 
@@ -387,7 +389,7 @@ namespace sctl {
             for (const auto node : new_node_lst) { // Collect missing parent-neighbors into new_mid
               if (node->m.Depth() <= 1) continue;
               const Integer p2n = node->m.Path2Node();
-              const auto p_nbr_lst_ = p_nbr_lst[p2n];
+              const auto& p_nbr_lst_ = p_nbr_lst[p2n];
               const Integer p_nbr_cnt_ = p_nbr_cnt[p2n];
 
               Integer tmp_buf[MAX_NBRS];
