@@ -120,23 +120,16 @@ template <class T, template <class...> class VV> struct vec_family<DeviceScratch
   template <class U> using to = VV<U>;
 };
 
-template <class T> struct ToIntKeyFunctor {
-  SCTL_GPU_HD std::uint64_t operator()(const T& x) const { return x.GetIntKey(); }
-};
-template <class T> struct FromIntKeyFunctor {
-  SCTL_GPU_HD T operator()(std::uint64_t k) const { return T::FromIntKey(k); }
-};
-
 // Sort v[0,n), `pol` supplying the device path's temporaries. Device: a Morton code is a struct,
 // so thrust picks a comparison sort for it; sorting its integer key reaches cub's radix sort
 // instead and gives the identical order. Host: omp_par::sort, since thrust's host backend is serial.
 template <class Policy, class Vec> void local_sort(const Policy& pol, Vec& v, Long n) {
   using T = typename vec_family<Vec>::elem;
   if constexpr (is_device_vector_v<Vec> && sctl::omp_par::is_radix_sortable<T>::value) {
-    DeviceScratch<std::uint64_t, vec_family<Vec>::template to> k(n);
-    thrust::transform(pol, v.begin(), v.begin() + n, k.begin(), ToIntKeyFunctor<T>{});
-    thrust::sort(pol, k.begin(), k.begin() + n);
-    thrust::transform(pol, k.begin(), k.begin() + n, v.begin(), FromIntKeyFunctor<T>{});
+    // a code is its integer key, so the codes sort in place
+    static_assert(sizeof(T) == sizeof(std::uint64_t) && std::is_standard_layout_v<T>);
+    std::uint64_t* k = reinterpret_cast<std::uint64_t*>(thrust::raw_pointer_cast(v.data()));
+    thrust::sort(pol, thrust::device_pointer_cast(k), thrust::device_pointer_cast(k + n));
   } else if constexpr (is_device_vector_v<Vec>) {
     thrust::sort(pol, v.begin(), v.begin() + n);
   } else {
@@ -158,10 +151,10 @@ template <class T, class ValT> struct KeyVal {
 template <class Policy, class Vec, class IVec> void local_sort_by_key(const Policy& pol, Vec& keys, IVec& vals, Long n) {
   using T = typename vec_family<Vec>::elem;
   if constexpr (is_device_vector_v<Vec> && sctl::omp_par::is_radix_sortable<T>::value) {
-    DeviceScratch<std::uint64_t, vec_family<Vec>::template to> k(n);
-    thrust::transform(pol, keys.begin(), keys.begin() + n, k.begin(), ToIntKeyFunctor<T>{});
-    thrust::sort_by_key(pol, k.begin(), k.begin() + n, vals.begin());
-    thrust::transform(pol, k.begin(), k.begin() + n, keys.begin(), FromIntKeyFunctor<T>{});
+    // a code is its integer key, so the codes sort in place
+    static_assert(sizeof(T) == sizeof(std::uint64_t) && std::is_standard_layout_v<T>);
+    std::uint64_t* k = reinterpret_cast<std::uint64_t*>(thrust::raw_pointer_cast(keys.data()));
+    thrust::sort_by_key(pol, thrust::device_pointer_cast(k), thrust::device_pointer_cast(k + n), vals.begin());
   } else if constexpr (is_device_vector_v<Vec>) {
     thrust::sort_by_key(pol, keys.begin(), keys.begin() + n, vals.begin());
   } else {
@@ -1682,22 +1675,15 @@ void GPUTree<Real, DIM, DevVec>::buildTreeDist(DevVec<Morton<DIM>>& tree, DataVi
       thrust::fill(pol, node_lists->child.begin(), node_lists->child.end(), Long(-1));
       thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Nt, detail_nodeLists::ParentPassFunctor<DIM>{tp, Nt, pp});
       thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Nt, detail_nodeLists::ChildPassFunctor<DIM>{tp, pp, cp});
-      if constexpr (detail::is_device_vector_v<DevVec<Long>>) {
-        // One kernel of independent root-to-depth descents: the device hides their latency with
-        // parallelism and the shallow levels stay in cache, where level-ordered launches idle
-        // between levels.
-        detail::dispatchPeriodicity<DIM>(periodicity, [&pol, Nt, tp, cp, nbp](auto per_c) {
-          thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Nt * MAX_NBRS, detail_nodeLists::NbrDescentFunctor<DIM, decltype(per_c)::value>{tp, cp, nbp});
-        });
-      } else {
-        // The host is the opposite: the descents are dependent random loads, so seed the root's row
-        // and propagate level by level instead.
-        if (Nt) detail::dispatchPeriodicity<DIM>(periodicity, [&pol, tp, cp, nbp](auto per_c) {  // the root is always index 0
-          thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Long(MAX_NBRS), detail_nodeLists::NbrDescentFunctor<DIM, decltype(per_c)::value>{tp, cp, nbp});
-        });
-        for (Integer d = 1; d <= Morton<DIM>::MAX_DEPTH; d++)
-          thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Nt, detail_nodeLists::NbrPropagateFunctor<DIM>{tp, pp, cp, nbp, d});
-      }
+      // Seed the root's row, then propagate level by level: two reads per entry, where a
+      // root-to-depth descent per entry is a chain of dependent loads.
+      if (Nt) detail::dispatchPeriodicity<DIM>(periodicity, [&pol, tp, cp, nbp](auto per_c) {  // the root is always index 0
+        thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Long(MAX_NBRS), detail_nodeLists::NbrDescentFunctor<DIM, decltype(per_c)::value>{tp, cp, nbp});
+      });
+      // every level below the root adds at least MAX_CHILD nodes
+      const Integer max_depth = (Integer)std::min<Long>(Morton<DIM>::MAX_DEPTH, (Nt - 1) / MAX_CHILD);
+      for (Integer d = 1; d <= max_depth; d++)
+        thrust::for_each_n(pol, thrust::counting_iterator<Long>(0), Nt, detail_nodeLists::NbrPropagateFunctor<DIM>{tp, pp, cp, nbp, d});
     }
   };
   if (Nglob <= M) {  // all particles fit one leaf: root-only tree, held by rank 0
